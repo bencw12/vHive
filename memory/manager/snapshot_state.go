@@ -291,9 +291,14 @@ func (s *SnapshotState) pollUserPageFaults(readyCh chan int) {
 			return
 		default:
 			nevents, err := syscall.EpollWait(s.epfd, events[:], -1)
-			if err != nil {
+			if err != nil && err != syscall.EINTR {
 				logger.Fatalf("epoll_wait: %v", err)
 				break
+			}
+
+			// skip and continue handling
+			if err == syscall.EINTR {
+				continue
 			}
 
 			if nevents < 1 {
