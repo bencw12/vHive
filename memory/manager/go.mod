@@ -11,7 +11,7 @@ require (
 	github.com/containerd/typeurl v1.0.1 // indirect
 	github.com/docker/distribution v2.7.1+incompatible // indirect
 	github.com/docker/go-events v0.0.0-20190806004212-e31b211e4f1c // indirect
-	github.com/ease-lab/vhive/metrics v0.0.0-20201130161247-acbfdab4ba15
+	github.com/ease-lab/vhive/metrics v0.0.0-00010101000000-000000000000
 	github.com/ftrvxmtrx/fd v0.0.0-20150925145434-c6d800382fff
 	github.com/gogo/googleapis v1.4.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
