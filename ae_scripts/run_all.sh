@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # MIT License
 #
 # Copyright (c) 2020 Dmitrii Ustiugov, Plamen Petrov and EASE lab
@@ -19,8 +21,6 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
-#!/bin/bash
 
 set -e
 
@@ -53,7 +53,7 @@ if [[ ! $mode =~ ^(baseline|reap)$ ]]; then
     die "Wrong mode specified, the scripts supports only the following modes: baseline, reap"
 fi
 
-host_ip=`curl ifconfig.me`
+host_ip=`ip -4 addr show $(ip route | grep default | awk '{print $5}') | grep -oP '(?<=inet\s)\d+(\.\d+){3}'`
 
 # Make sure KVM is available on the machine
 sudo setfacl -m u:${USER}:rw /dev/kvm

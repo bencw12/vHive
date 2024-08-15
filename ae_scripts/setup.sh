@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # MIT License
 #
 # Copyright (c) 2020 Dmitrii Ustiugov, Plamen Petrov and EASE lab
@@ -19,8 +21,6 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
-#!/bin/bash
 
 # Kill all children of the process upon a keyboard interrupt or exit
 trap "exit" INT TERM ERR
@@ -53,7 +53,7 @@ echo Run MinIO server as a daemon
 $ROOT/function-images/minio_scripts/start_minio_server.sh &
 sleep 1
 
-host_ip=`curl ifconfig.me`
+host_ip=`ip -4 addr show $(ip route | grep default | awk '{print $5}') | grep -oP '(?<=inet\s)\d+(\.\d+){3}'`
 $ROOT/function-images/minio_scripts/create_minio_bucket.sh http://$host_ip:9000 || echo Minio bucket exists, continuing...
 
 echo Populate the bucket with all files
