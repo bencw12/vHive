@@ -2,10 +2,11 @@
 
 import os
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 
 ROOT_DIR = os.path.split(os.path.realpath(__file__))[0] + "/.."
 RESULTS_DIR = ROOT_DIR + "/all_results"
-FUNCTIONS = ROOT_DIR + "/scripts/functions.txt"
+FUNCTIONS = ROOT_DIR + "/ae_scripts/functions.txt"
 
 BASELINE_INVOCATION = 7
 BASELINE_VMM = 9
@@ -34,28 +35,32 @@ def plot_one_func(ax, f, idx):
         .readlines()[-1].split('\n')[0].split(',')
 
     # confirmed these are the correct values
-    func_time = int(baseline[BASELINE_INVOCATION])
-    conn_time = int(baseline[BASELINE_CONN])
-    vmm_time = int(baseline[BASELINE_VMM])
-    total=int((func_time + conn_time + vmm_time) / 1000)
+    func_time = int(baseline[BASELINE_INVOCATION]) / 1000
+    conn_time = int(baseline[BASELINE_CONN]) / 1000
+    vmm_time = int(baseline[BASELINE_VMM]) / 1000
+    total=int(func_time + conn_time + vmm_time)
     
     ax.bar(idx, vmm_time, color=COLORS['vmm'], width=WIDTH)
     ax.bar(idx, conn_time, bottom=vmm_time, color=COLORS['conn'], width=WIDTH)
     ax.bar(idx, func_time, bottom=conn_time + vmm_time, color=COLORS['func'], width=WIDTH)
-    ax.annotate(f"{total}", (idx, (total * 1000) + 1000), ha='center')
+    
+    ax.annotate(f"{vmm_time}", (idx, int(vmm_time/2 + 10)), ha='center')    
+    ax.annotate(f"{conn_time}", (idx, int((vmm_time + (conn_time / 2)) + 10)), ha='center')
+    ax.annotate(f"{func_time}", (idx, int(((vmm_time + conn_time) + (func_time / 2))) + 10), ha='center')
+    ax.annotate(f"{total}", (idx, total + 10), ha='center')
 
     reap = open(RESULTS_DIR + f"/reap/{f}/serve.csv")\
         .readlines()[-1].split('\n')[0].split(',')
 
-    func_time = int(reap[REAP_INVOCATION])
-    conn_time = int(reap[REAP_CONN])
-    vmm_time = int(reap[REAP_VMM])
-    total=int((func_time + conn_time + vmm_time) / 1000)
+    func_time = int(reap[REAP_INVOCATION]) / 1000
+    conn_time = int(reap[REAP_CONN]) / 1000
+    vmm_time = int(reap[REAP_VMM]) / 1000
+    total=int(func_time + conn_time + vmm_time)
 
     ax.bar(idx + (WIDTH + WIDTH/2), vmm_time, color=COLORS['vmm'], width=WIDTH)
     ax.bar(idx + (WIDTH + WIDTH/2), conn_time, bottom=vmm_time, color=COLORS['conn'], width=WIDTH)
     ax.bar(idx + (WIDTH + WIDTH/2), func_time, bottom=conn_time + vmm_time, color=COLORS['func'], width=WIDTH)
-    ax.annotate(f"{total}", (idx + (WIDTH + WIDTH/2), (total * 1000) + 1000), ha='center')
+    ax.annotate(f"{total}", (idx + (WIDTH + WIDTH/2), total + 10), ha='center')
 
 
 def plot_all():
@@ -82,6 +87,14 @@ def plot_all():
 
     plt.xticks(ticks, labels, rotation=50, ha='right')
     plt.tight_layout()
+
+    legend = [
+        Patch(facecolor="tab:green", label="Function Invocation"),
+        Patch(facecolor="tab:orange", label="Connection Restoration"),
+        Patch(facecolor="tab:blue", label="Load VMM")
+    ]
+
+    ax.legend(handles=legend)
     
     plt.savefig(ROOT_DIR + "/graph.pdf")
 
