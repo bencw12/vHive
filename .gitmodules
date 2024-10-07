@@ -1,0 +1,6 @@
+[submodule "firecracker-containerd"]
+	path = firecracker-containerd
+	url = https://github.com/ease-lab/firecracker-containerd.git
+[submodule "firecracker"]
+	path = firecracker
+	url = https://github.com/ease-lab/firecracker.git
