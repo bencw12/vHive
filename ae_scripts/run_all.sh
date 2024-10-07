@@ -60,10 +60,13 @@ sudo setfacl -m u:${USER}:rw /dev/kvm
 
 # Reading the file with functions
 i=0
-for j in `cat $ROOT/ae_scripts/functions.txt`
+mapfile -t funcs < "$ROOT/ae_scripts/functions.txt"
+for line in "${funcs[@]}";
 do
-    wlds[$i]=$j
-    i=$(($i+1))
+    if ! [[ $line == *\#* ]]; then
+	wlds[$i]=$line
+	i=$(($i+1))
+    fi
 done
 
 echo The experiment will run the following functions: ${wlds[@]}
@@ -72,7 +75,6 @@ all_results_path=all_results
 results_path=$all_results_path/$mode
 rm -rf $results_path || echo Folder $results_path exists, removing the old one.
 mkdir -p $results_path
-
 echo Run MinIO server as a daemon
 sudo pkill -9 minio || echo
 $ROOT/function-images/minio_scripts/start_minio_server.sh 1>/dev/null &
