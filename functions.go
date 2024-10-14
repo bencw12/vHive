@@ -221,13 +221,13 @@ func NewFunction(fID, imageName string, Stats *Stats, servedTh uint64, isToPin b
 // function instances when necessary.
 //
 // Synchronization description:
-// 1. Function needs to start an instance (with a unique vmID) if there are none: goroutines are synchronized with do.Once
-// 2. Function (that is not pinned) can serve only up to servedTh requests (controlled by a WeightedSemaphore)
-//    a. The last goroutine needs to trigger the function's instance shutdown, then reset the semaphore,
-//       allowing new goroutines to serve their requests.
-//    b. The last goroutine is determined by the atomic counter: the goroutine with syncID==0 shuts down
-//       the instance.
-//    c. Instance shutdown is performed asynchronously because all instances have unique IDs.
+//  1. Function needs to start an instance (with a unique vmID) if there are none: goroutines are synchronized with do.Once
+//  2. Function (that is not pinned) can serve only up to servedTh requests (controlled by a WeightedSemaphore)
+//     a. The last goroutine needs to trigger the function's instance shutdown, then reset the semaphore,
+//     allowing new goroutines to serve their requests.
+//     b. The last goroutine is determined by the atomic counter: the goroutine with syncID==0 shuts down
+//     the instance.
+//     c. Instance shutdown is performed asynchronously because all instances have unique IDs.
 func (f *Function) Serve(ctx context.Context, fID, imageName, reqPayload string) (*hpb.FwdHelloResp, *metrics.Metric, error) {
 	var (
 		serveMetric *metrics.Metric = metrics.NewMetric()
@@ -303,6 +303,12 @@ func (f *Function) Serve(ctx context.Context, fID, imageName, reqPayload string)
 				f.CreateInstanceSnapshot()
 				f.isSnapshotReady = true
 			})
+	}
+
+	for i := 0; i < 1; i++ {
+		tStart = time.Now()
+		resp, err = f.fwdRPC(ctxFwd, reqPayload)
+		serveMetric.MetricMap[metrics.Warm] = metrics.ToUS(time.Since(tStart))
 	}
 
 	f.RUnlock()

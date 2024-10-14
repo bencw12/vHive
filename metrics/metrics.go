@@ -62,6 +62,9 @@ const (
 	TaskWait = "TaskWait"
 	// TaskStart Time to start task
 	TaskStart = "TaskStart"
+
+	// Warm Time for a warm invocation
+	Warm = "Warm"
 )
 
 // Metric A general metric
