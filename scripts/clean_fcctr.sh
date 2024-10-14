@@ -54,6 +54,9 @@ sudo dmsetup remove fc-dev-thinpool
 echo Cleaning $CTRD_ROOT/var/lib/firecracker-containerd/*
 for d in containerd shim-base snapshotter; do sudo rm -rf $CTRD_ROOT/var/lib/firecracker-containerd/$d; done
 
+echo Cleaning /var/lib/firecracker-containerd/*
+for d in containerd shim-base snapshotter; do sudo rm -rf /var/lib/firecracker-containerd/$d; done
+
 echo Creating a fresh devmapper
 source $DIR/create_devmapper.sh
 
