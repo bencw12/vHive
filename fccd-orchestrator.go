@@ -122,6 +122,7 @@ func main() {
 		ctriface.WithUPF(*isUPFEnabled),
 		ctriface.WithMetricsMode(*isMetricsMode),
 		ctriface.WithLazyMode(*isLazyMode),
+		ctriface.WithCtrdRoot(""),
 	)
 
 	funcPool = NewFuncPool(*isSaveMemory, *servedThreshold, *pinnedFuncNum, testModeOn)

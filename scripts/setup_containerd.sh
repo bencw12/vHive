@@ -30,7 +30,7 @@ BINS=$ROOT/bin
 CONFIGS=$ROOT/configs/firecracker-containerd
 
 sudo mkdir -p /etc/firecracker-containerd
-sudo mkdir -p /var/lib/firecracker-containerd/runtime
+sudo mkdir -p $CTRD_ROOT/var/lib/firecracker-containerd/runtime
 sudo mkdir -p /etc/containerd/
 
 cd $ROOT
@@ -44,9 +44,19 @@ do
 done
 
 # rootfs image
-sudo cp $BINS/default-rootfs.img /var/lib/firecracker-containerd/runtime/
+sudo cp $BINS/default-rootfs.img $CTRD_ROOT/var/lib/firecracker-containerd/runtime/
 # kernel image
-sudo curl -fsSL -o /var/lib/firecracker-containerd/runtime/hello-vmlinux.bin https://s3.amazonaws.com/spec.ccfc.min/img/hello/kernel/hello-vmlinux.bin
+sudo curl -fsSL -o $CTRD_ROOT/var/lib/firecracker-containerd/runtime/hello-vmlinux.bin https://s3.amazonaws.com/spec.ccfc.min/img/hello/kernel/hello-vmlinux.bin
+
+# firecracker-containrd configs
+sed -i 's|\(root = \).*|\1"'${CTRD_ROOT}/var/lib/firecracker-containerd/containerd'"|' $CONFIGS/config.toml
+sed -i 's|\(state = \).*|\1"'${CTRD_ROOT}/run/firecracker-containerd'"|' $CONFIGS/config.toml
+sed -i 's|\(root_path = \).*|\1"'${CTRD_ROOT}/var/lib/firecracker-containerd/snapshotter/devmapper'"|' $CONFIGS/config.toml
 
 sudo cp $CONFIGS/config.toml /etc/firecracker-containerd/
+
+sed -i 's|\("firecracker_binary_path": \).*|\1"'${BINS}/firecracker'",|' $CONFIGS/firecracker-runtime.json
+sed -i 's|\("kernel_image_path": \).*|\1"'${CTRD_ROOT}/var/lib/firecracker-containerd/runtime/hello-vmlinux.bin'",|' $CONFIGS/firecracker-runtime.json
+sed -i 's|\("root_drive": \).*|\1"'${CTRD_ROOT}/var/lib/firecracker-containerd/runtime/default-rootfs.img'",|' $CONFIGS/firecracker-runtime.json
+
 sudo cp $CONFIGS/firecracker-runtime.json /etc/containerd/

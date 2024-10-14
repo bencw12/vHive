@@ -26,6 +26,8 @@
 trap "exit" INT TERM ERR
 trap "kill 0" EXIT
 
+export CTRD_ROOT=$1
+
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 ROOT="$( cd $DIR && cd .. && pwd)"
@@ -50,7 +52,7 @@ echo Set up MinIO server
 $ROOT/function-images/minio_scripts/install_minio.sh
 
 echo Run MinIO server as a daemon
-$ROOT/function-images/minio_scripts/start_minio_server.sh &
+$ROOT/function-images/minio_scripts/start_minio_server.sh $CTRD_ROOT/data > /dev/null 2>&1 &
 sleep 1
 
 host_ip=`ip -4 addr show $(ip route | grep default | awk '{print $5}') | grep -oP '(?<=inet\s)\d+(\.\d+){3}'`

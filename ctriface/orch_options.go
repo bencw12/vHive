@@ -22,6 +22,8 @@
 
 package ctriface
 
+import "fmt"
+
 // OrchestratorOption Options to pass to Orchestrator
 type OrchestratorOption func(*Orchestrator)
 
@@ -77,5 +79,11 @@ func WithMetricsMode(isMetricsMode bool) OrchestratorOption {
 func WithMinioAddress(minioAddress string) OrchestratorOption {
 	return func(o *Orchestrator) {
 		o.minioAddress = minioAddress
+	}
+}
+
+func WithCtrdRoot(root string) OrchestratorOption {
+	return func(o *Orchestrator) {
+		o.snapshotsDir = fmt.Sprintf("%s/fccd/snapshots", root)
 	}
 }

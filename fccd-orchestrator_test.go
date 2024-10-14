@@ -49,6 +49,7 @@ var (
 	isWithCache            = flag.Bool("withCache", false, "Do not drop the cache before measurements")
 	benchDir               = flag.String("benchDirTest", "bench_results", "Directory where stats should be saved")
 	minioAddress           = flag.String("minioAddress", "", "Address of Minio server holding the inputs to s3 workloads. ADDRESS:PORT")
+	ctrdRoot               = flag.String("ctrdRoot", "", "Root directory for snapshot data")
 )
 
 func TestMain(m *testing.M) {
@@ -72,6 +73,7 @@ func TestMain(m *testing.M) {
 	log.Infof("Orchestrator UPF metrics enabled: %t", *isMetricsModeTest)
 	log.Infof("Drop cache: %t", !*isWithCache)
 	log.Infof("Bench dir: %s", *benchDir)
+	log.Infof("Containerd root: %s", *ctrdRoot)
 
 	orch = ctriface.NewOrchestrator(
 		"devmapper",
@@ -81,6 +83,7 @@ func TestMain(m *testing.M) {
 		ctriface.WithMetricsMode(*isMetricsModeTest),
 		ctriface.WithLazyMode(*isLazyModeTest),
 		ctriface.WithMinioAddress(*minioAddress),
+		ctriface.WithCtrdRoot(*ctrdRoot),
 	)
 
 	ret := m.Run()

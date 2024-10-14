@@ -45,9 +45,12 @@ die () {
 
 ################### Main body below #######################
 
-[ "$#" -eq 1 ] || die "1 argument required, $# provided"
+[ "$#" -eq 1 ] || [ "$#" -eq 2 ] || die "usage: $0 [baseline|reap] <containerd-root>"
 
 mode=$1
+CTRD_ROOT=$2
+
+export CTRD_ROOT=$CTRD_ROOT
 
 if [[ ! $mode =~ ^(baseline|reap)$ ]]; then
     die "Wrong mode specified, the scripts supports only the following modes: baseline, reap"
@@ -77,7 +80,7 @@ rm -rf $results_path || echo Folder $results_path exists, removing the old one.
 mkdir -p $results_path
 echo Run MinIO server as a daemon
 sudo pkill -9 minio || echo
-$ROOT/function-images/minio_scripts/start_minio_server.sh 1>/dev/null &
+$ROOT/function-images/minio_scripts/start_minio_server.sh $CTRD_ROOT/data 1>/dev/null &
 sleep 1
 
 echo ======================================================
@@ -111,6 +114,10 @@ do
     ########################################################
     echo Running the actual benchmark... may take up to one minute.
 
+    if ! [ "${CTRD_ROOT}x" == "x" ]; then
+	ctrdRoot="-ctrdRoot ${CTRD_ROOT}"
+    fi
+
     sudo $GO_BIN test -v -run TestBenchServe \
         -args -iter 5 \
         -snapshotsTest \
@@ -118,6 +125,7 @@ do
         -metricsTest \
         -funcName $wld \
         -minioAddress $host_ip:9000 \
+	$ctrdRoot \
         $modeFlag 1>$wld_dir/test.out 2>$wld_dir/test.err
     
     sleep 1

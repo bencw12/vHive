@@ -51,8 +51,8 @@ echo Removing devmapper devices
 for de in `sudo dmsetup ls| cut -f1|grep snap`; do sudo dmsetup remove $de && echo Removed $de; done
 sudo dmsetup remove fc-dev-thinpool
 
-echo Cleaning /var/lib/firecracker-containerd/*
-for d in containerd shim-base snapshotter; do sudo rm -rf /var/lib/firecracker-containerd/$d; done
+echo Cleaning $CTRD_ROOT/var/lib/firecracker-containerd/*
+for d in containerd shim-base snapshotter; do sudo rm -rf $CTRD_ROOT/var/lib/firecracker-containerd/$d; done
 
 echo Creating a fresh devmapper
 source $DIR/create_devmapper.sh
