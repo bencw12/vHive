@@ -197,7 +197,7 @@ func (s *server) StartVM(ctx context.Context, in *pb.StartVMReq) (*pb.StartVMRes
 
 	tProfile := "not supported anymore"
 
-	_, _, err := funcPool.Serve(ctx, fID, imageName, "record")
+	_, _, err := funcPool.Serve(ctx, fID, imageName, "record", false)
 	if err != nil {
 		return &pb.StartVMResp{Message: "First serve failed", Profile: tProfile}, err
 	}
@@ -237,6 +237,6 @@ func (s *fwdServer) FwdHello(ctx context.Context, in *hpb.FwdHelloReq) (*hpb.Fwd
 	logger := log.WithFields(log.Fields{"fID": fID, "image": imageName, "payload": payload})
 	logger.Debug("Received FwdHelloVM")
 
-	resp, _, err := funcPool.Serve(ctx, fID, imageName, payload)
+	resp, _, err := funcPool.Serve(ctx, fID, imageName, payload, true)
 	return resp, err
 }

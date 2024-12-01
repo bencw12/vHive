@@ -94,6 +94,7 @@ func (o *Orchestrator) StartVM(ctx context.Context, vmID, imageName string) (_ *
 	tStart = time.Now()
 	conf := o.getVMConfig(vm)
 	resp, err := o.fcClient.CreateVM(ctx, conf)
+
 	startVMMetric.MetricMap[metrics.FcCreateVM] = metrics.ToUS(time.Since(tStart))
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "failed to create the microVM in firecracker-containerd")
@@ -128,6 +129,7 @@ func (o *Orchestrator) StartVM(ctx context.Context, vmID, imageName string) (_ *
 		return nil, nil, errors.Wrap(err, "failed to create a container")
 	}
 
+	logger.Debug("StartVM: Created container!")
 	defer func() {
 		if retErr != nil {
 			if err := container.Delete(ctx, containerd.WithSnapshotCleanup); err != nil {
@@ -145,6 +147,7 @@ func (o *Orchestrator) StartVM(ctx context.Context, vmID, imageName string) (_ *
 		return nil, nil, errors.Wrapf(err, "failed to create a task")
 	}
 
+	logger.Debug("StartVM: Created task!")
 	defer func() {
 		if retErr != nil {
 			if _, err := task.Delete(ctx); err != nil {
@@ -161,7 +164,7 @@ func (o *Orchestrator) StartVM(ctx context.Context, vmID, imageName string) (_ *
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "failed to wait for a task")
 	}
-
+	logger.Debug("StartVM: task is ready!")
 	defer func() {
 		if retErr != nil {
 			if err := task.Kill(ctx, syscall.SIGKILL); err != nil {
@@ -176,7 +179,7 @@ func (o *Orchestrator) StartVM(ctx context.Context, vmID, imageName string) (_ *
 		return nil, nil, errors.Wrap(err, "failed to start a task")
 	}
 	startVMMetric.MetricMap[metrics.TaskStart] = metrics.ToUS(time.Since(tStart))
-
+	logger.Debug("StartVM: Started task!")
 	defer func() {
 		if retErr != nil {
 			if err := task.Kill(ctx, syscall.SIGKILL); err != nil {
@@ -272,12 +275,41 @@ func (o *Orchestrator) getImage(ctx context.Context, imageName string) (*contain
 	if !found {
 		var err error
 		log.Debug(fmt.Sprintf("Pulling image %s", imageName))
+
 		image, err = o.client.Pull(ctx, "docker.io/"+imageName,
 			containerd.WithPullUnpack,
 			containerd.WithPullSnapshotter(o.snapshotter),
 		)
+
 		if err != nil {
-			return &image, err
+			log.Debugf("Failed to pull image %s, trying local", imageName)
+
+			tar, err := os.Open(imageName)
+			if err != nil {
+				return &image, err
+			}
+
+			log.Debug("Opened tar file")
+			defer tar.Close()
+
+			images, err := o.client.Import(ctx, tar)
+			if err != nil {
+				return &image, err
+			}
+
+			log.Debug("Imported Image")
+			image, err = o.client.GetImage(ctx, images[0].Name)
+			if err != nil {
+				log.Debugf("Pull error: %s", err)
+				return &image, err
+			}
+
+			if err := image.Unpack(ctx, o.snapshotter); err != nil {
+				log.Debugf("Failed to unpack image: %s", err)
+				return &image, err
+			}
+
+			log.Debugf("Pulled image!")
 		}
 		o.cachedImages[imageName] = image
 	}
@@ -285,17 +317,20 @@ func (o *Orchestrator) getImage(ctx context.Context, imageName string) (*contain
 	return &image, nil
 }
 
-func (o *Orchestrator) getVMConfig(vm *misc.VM) *proto.CreateVMRequest {
-	kernelArgs := "ro noapic reboot=k panic=1 pci=off nomodules systemd.log_color=false systemd.unit=firecracker.target init=/sbin/overlay-init tsc=reliable quiet 8250.nr_uarts=0 ipv6.disable=1"
+func (o *Orchestrator) getVMConfig(vm *misc.VM) *proto.CreateVMRequest {	
+	kernelArgs := "ro noapic reboot=k panic=1 pci=off nomodules systemd.log_color=false systemd.unit=firecracker.target init=/sbin/overlay-init quiet 8250.nr_uarts=0 tsc=reliable ipv6.disable=1"
 
 	return &proto.CreateVMRequest{
 		VMID:           vm.ID,
-		TimeoutSeconds: 100,
+		TimeoutSeconds: 1000000,
 		KernelArgs:     kernelArgs,
 		MachineCfg: &proto.FirecrackerMachineConfiguration{
 			VcpuCount:  1,
 			MemSizeMib: 256,
 		},
+		// RootDrive: &proto.FirecrackerRootDrive {
+		// 	HostPath: "/fast/bcwh/git/junction/lib/reap/bin/ubuntu-22.04.ext4",
+		// },
 		NetworkInterfaces: []*proto.FirecrackerNetworkInterface{{
 			StaticConfig: &proto.StaticNetworkConfiguration{
 				MacAddress:  vm.Ni.MacAddress,
@@ -324,13 +359,13 @@ func (o *Orchestrator) StopActiveVMs() error {
 		}(vmID, vm)
 	}
 
-	log.Info("waiting for goroutines")
+	log.Debug("waiting for goroutines")
 	vmGroup.Wait()
-	log.Info("waiting done")
+	log.Debug("waiting done")
 
-	log.Info("Closing fcClient")
+	log.Debug("Closing fcClient")
 	o.fcClient.Close()
-	log.Info("Closing containerd client")
+	log.Debug("Closing containerd client")
 	o.client.Close()
 
 	return nil
@@ -416,6 +451,7 @@ func (o *Orchestrator) LoadSnapshot(ctx context.Context, vmID string) (*metrics.
 	}
 
 	if o.GetUPFEnabled() {
+		// this reads the entire working set into a buffer (bypassing the page cache)
 		o.memoryManager.FetchState(vmID)
 	}
 
@@ -430,6 +466,7 @@ func (o *Orchestrator) LoadSnapshot(ctx context.Context, vmID string) (*metrics.
 	}()
 
 	if o.GetUPFEnabled() {
+		o.memoryManager.Prefault = o.Prefault
 		if activateErr = o.memoryManager.Activate(vmID); activateErr != nil {
 			logger.Warn("Failed to activate VM in the memory manager", activateErr)
 		}
@@ -445,6 +482,30 @@ func (o *Orchestrator) LoadSnapshot(ctx context.Context, vmID string) (*metrics.
 	}
 
 	return loadSnapshotMetric, nil
+}
+
+func (o *Orchestrator) ResetTrace(ctx context.Context, vmID string) error {
+	logger := log.WithFields(log.Fields{"vmID": vmID})
+	logger.Debug("Orchestrator received Offload")
+
+	ctx = namespaces.WithNamespace(ctx, namespaceName)
+
+	_, err := o.vmPool.GetVM(vmID)
+	if err != nil {
+		if _, ok := err.(*misc.NonExistErr); ok {
+			logger.Panic("Offload: VM does not exist")
+		}
+		logger.Panicf("Offload: GetVM() failed for an unknown reason %v", err)
+	}
+
+	if o.GetUPFEnabled() {
+		if err := o.memoryManager.ResetTrace(vmID); err != nil {
+			logger.Error("Failed to reser VM")
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Offload Shuts down the VM but leaves shim and other resources running.

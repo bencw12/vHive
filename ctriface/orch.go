@@ -63,12 +63,14 @@ type Orchestrator struct {
 	// store *skv.KVStore
 	snapshotsEnabled bool
 	isUPFEnabled     bool
+	isMemTraceEnabled bool
 	isLazyMode       bool
 	snapshotsDir     string
 	isMetricsMode    bool
 	minioAddress     string
 
 	memoryManager *manager.MemoryManager
+	Prefault      bool // BCWH
 }
 
 // NewOrchestrator Initializes a new orchestrator
@@ -142,6 +144,15 @@ func (o *Orchestrator) Cleanup() {
 // GetSnapshotsEnabled Returns the snapshots mode of the orchestrator
 func (o *Orchestrator) GetSnapshotsEnabled() bool {
 	return o.snapshotsEnabled
+}
+
+// EnableMemTrace is a hack
+func (o *Orchestrator) EnableMemTrace() {
+	o.isUPFEnabled = false
+}
+
+func (o *Orchestrator) DisableMemTrace() {
+	o.isUPFEnabled = true
 }
 
 // GetUPFEnabled Returns the UPF mode of the orchestrator

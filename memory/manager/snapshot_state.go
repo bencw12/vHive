@@ -40,6 +40,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"debug/elf"
 
 	"github.com/ftrvxmtrx/fd"
 	log "github.com/sirupsen/logrus"
@@ -64,6 +65,11 @@ type SnapshotStateCfg struct {
 	metricsModeOn    bool
 }
 
+type MemRange struct {
+	start uint64
+	len uint64
+}
+
 // SnapshotState Stores the state of the snapshot
 // of the VM.
 type SnapshotState struct {
@@ -74,6 +80,7 @@ type SnapshotState struct {
 	trace              *Trace
 	epfd               int
 	quitCh             chan int
+	scanCh             chan int
 
 	// to indicate whether the instance has even been activated. this is to
 	// get around cases where offload is called for the first time
@@ -85,16 +92,31 @@ type SnapshotState struct {
 
 	guestMem   []byte
 	workingSet []byte
+	kernelPhdrs []MemRange
 
 	// Stats
 	totalPFServed  []float64
 	uniquePFServed []float64
 	reusedPFServed []float64
+	zeroPFServedWS []float64
+	zeroPFServedUnique []float64
+	kernelPFServedInWS []float64
+	kernelPFServedOutWS []float64
 	latencyMetrics []*metrics.Metric
+	inWSPFServed   []float64
 
 	replayedNum   int // only valid for lazy serving
+	zeroNumWS       uint64 // number of zero pages from WS given to the guest in lazy mode
+	zeroNumUnique       uint64 // number of unique zero pages given to the guest in lazy mode
 	uniqueNum     int
+	kernelNumInWS     int // number of faults intercepted from kernel pages in the WS
+	kernelNumOutWS int // number of faults intercepted from kernel pages outside the WS
 	currentMetric *metrics.Metric
+
+	inWS uint64
+	prefault bool
+	uniquePFList [][]uint64
+	uniquePF []uint64
 }
 
 // NewSnapshotState Initializes a snapshot state
@@ -106,8 +128,35 @@ func NewSnapshotState(cfg SnapshotStateCfg) *SnapshotState {
 	if s.metricsModeOn {
 		s.totalPFServed = make([]float64, 0)
 		s.uniquePFServed = make([]float64, 0)
+		s.inWSPFServed = make([]float64, 0)
 		s.reusedPFServed = make([]float64, 0)
 		s.latencyMetrics = make([]*metrics.Metric, 0)
+		s.kernelPhdrs = make([]MemRange, 0)
+		s.kernelPFServedInWS = make([]float64, 0)
+		s.kernelPFServedOutWS = make([]float64, 0)
+		s.uniquePFList = make([][]uint64, 0, 0)
+		s.uniquePF = make([]uint64, 0)
+		s.zeroPFServedWS = make([]float64, 0)
+		s.zeroPFServedUnique = make([]float64, 0)
+
+		// TODO don't hardcode elf path
+		file, err := os.Open("/fast/bcwh/git/junction/lib/reap/bin/vmlinux.bin")
+		if err != nil {
+			panic(fmt.Sprintf("failed to open kernel ELF: %v", err))
+		}
+
+		defer file.Close()
+
+		elf, err := elf.NewFile(file)
+		if err != nil {
+			panic(fmt.Sprintf("failed to parse ELF: %v", err))
+		}
+
+		for _, prog := range elf.Progs {
+			if prog.Type == 1 {
+				s.kernelPhdrs = append(s.kernelPhdrs, MemRange{start: prog.Paddr, len:prog.Memsz})
+			}
+		}
 	}
 
 	return s
@@ -118,11 +167,18 @@ func (s *SnapshotState) setupStateOnActivate() {
 	s.isEverActivated = true
 	s.firstPageFaultOnce = new(sync.Once)
 	s.quitCh = make(chan int)
+	s.scanCh = make(chan int)
 
 	if s.metricsModeOn {
 		s.uniqueNum = 0
 		s.replayedNum = 0
 		s.currentMetric = metrics.NewMetric()
+		s.inWS = 0
+		s.kernelNumInWS = 0
+		s.kernelNumOutWS = 0
+		s.zeroNumWS = 0
+		s.zeroNumUnique = 0
+		s.uniquePF = make([]uint64, 0)
 	}
 }
 
@@ -160,7 +216,20 @@ func (s *SnapshotState) getUFFD() error {
 
 func (s *SnapshotState) processMetrics() {
 	if s.metricsModeOn && s.isRecordReady {
-		s.uniquePFServed = append(s.uniquePFServed, float64(s.uniqueNum))
+
+		if s.prefault {
+			s.uniquePFServed = append(s.uniquePFServed, float64(s.uniqueNum))
+			s.kernelPFServedOutWS = append(s.kernelPFServedOutWS, float64(s.kernelNumOutWS))
+			s.uniquePFList = append(s.uniquePFList, s.uniquePF)
+			s.zeroPFServedWS = append(s.zeroPFServedWS, float64(s.zeroNumWS))
+			s.zeroPFServedUnique = append(s.zeroPFServedUnique, float64(s.zeroNumUnique))
+		}
+
+		if !s.prefault {
+			s.inWSPFServed = append(s.inWSPFServed, float64(s.inWS))
+			s.kernelPFServedInWS = append(s.kernelPFServedInWS, float64(s.kernelNumInWS))
+		}
+
 
 		if s.IsLazyMode {
 			s.totalPFServed = append(s.totalPFServed, float64(s.replayedNum))
@@ -195,6 +264,7 @@ func (s *SnapshotState) mapGuestMemory() error {
 }
 
 func (s *SnapshotState) unmapGuestMemory() error {
+	<- s.scanCh
 	if err := unix.Munmap(s.guestMem); err != nil {
 		log.Errorf("Failed to munmap guest memory file: %v", err)
 		return err
@@ -287,7 +357,13 @@ func (s *SnapshotState) pollUserPageFaults(readyCh chan int) {
 	for {
 		select {
 		case <-s.quitCh:
-			logger.Debug("Handler received a signal to quit")
+
+			// collect zero page metrics
+			s.countWSZeroPages()
+			s.countUniqueZeroPages()
+
+			logger.Info("Handler received a signal to quit")
+			s.scanCh <- 0
 			return
 		default:
 			nevents, err := syscall.EpollWait(s.epfd, events[:], -1)
@@ -372,6 +448,11 @@ func (s *SnapshotState) registerEpoller() error {
 	return nil
 }
 
+func (s *SnapshotState) ResetTrace() {
+	s.isRecordReady = false
+	s.trace = initTrace(s.getTraceFile())
+}
+
 func (s *SnapshotState) servePageFault(fd int, address uint64) error {
 	var (
 		tStart              time.Time
@@ -381,6 +462,11 @@ func (s *SnapshotState) servePageFault(fd int, address uint64) error {
 	s.firstPageFaultOnce.Do(
 		func() {
 			s.startAddress = address
+
+			// bypass prefaulting to see how many faults resolve to the working set
+			if !s.prefault {
+				return;
+			}
 
 			if s.isRecordReady && !s.IsLazyMode {
 				if s.metricsModeOn {
@@ -396,6 +482,7 @@ func (s *SnapshotState) servePageFault(fd int, address uint64) error {
 		})
 
 	if workingSetInstalled {
+		log.Infof("Page fault after working set installed addr = 0x%x", address)
 		return nil
 	}
 
@@ -409,6 +496,24 @@ func (s *SnapshotState) servePageFault(fd int, address uint64) error {
 		offset: offset,
 	}
 
+
+	if !s.prefault {
+		if s.trace.containsRecord(rec) {
+			s.inWS += 1
+			for _, m := range s.kernelPhdrs {
+				if (offset >= m.start) && (offset < (m.start + m.len)) {
+					s.kernelNumInWS++
+				}
+			}
+		}
+	}
+
+	for _, m := range s.kernelPhdrs {
+		if (offset >= m.start) && (offset < (m.start + m.len)) && !s.trace.containsRecord(rec) {
+			s.kernelNumOutWS++
+		}
+	}
+
 	if !s.isRecordReady {
 		s.trace.AppendRecord(rec)
 	} else {
@@ -418,11 +523,12 @@ func (s *SnapshotState) servePageFault(fd int, address uint64) error {
 	if s.metricsModeOn {
 		if s.isRecordReady {
 			if s.IsLazyMode {
-				if !s.trace.containsRecord(rec) {
+				if !s.trace.containsRecord(rec) && s.prefault {
 					s.uniqueNum++
 				}
 				s.replayedNum++
 			} else {
+				s.uniquePF = append(s.uniquePF, offset)
 				s.uniqueNum++
 			}
 
@@ -441,7 +547,7 @@ func (s *SnapshotState) servePageFault(fd int, address uint64) error {
 }
 
 func (s *SnapshotState) installWorkingSetPages(fd int) {
-	log.Debug("Installing the working set pages")
+	log.Info("Installing the working set pages")
 
 	// build a list of sorted regions
 	keys := make([]uint64, 0)
@@ -455,6 +561,7 @@ func (s *SnapshotState) installWorkingSetPages(fd int) {
 	)
 
 	for _, offset := range keys {
+		// map of offset to length
 		regLength := s.trace.regions[offset]
 		regAddress := s.startAddress + offset
 		mode := uint64(C.const_UFFDIO_COPY_MODE_DONTWAKE)
@@ -467,6 +574,66 @@ func (s *SnapshotState) installWorkingSetPages(fd int) {
 	}
 
 	wake(fd, s.startAddress, os.Getpagesize())
+}
+
+func (s *SnapshotState) pageIsZero(addr uint64) bool {
+	ptr := (*uint64)(unsafe.Pointer(uintptr(addr)))
+
+	// loop through page
+	var sum uint64
+
+	sum = 0
+	for i:=addr; i<(addr + 4096/8); i++ {
+		sum |= *ptr
+		ptr = (*uint64)(unsafe.Pointer(uintptr(unsafe.Pointer(ptr)) + 8))
+	}
+
+	return (sum == 0)
+}
+
+func (s *SnapshotState) countUniqueZeroPages() {
+	log.Info("Counting zero pages from outside the working set")
+
+	for _, offset := range s.uniquePF {
+		base := uint64(uintptr(unsafe.Pointer(&s.guestMem[offset])))
+		if (s.pageIsZero(base)) {
+			s.zeroNumUnique++
+		}
+	}
+}
+
+func (s *SnapshotState) countWSZeroPages() {
+	log.Info("Counting zero pages in the working set file")
+
+	// build a list of sorted regions
+	keys := make([]uint64, 0)
+	for k := range s.trace.regions {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+
+	var (
+		srcOffset uint64
+	)
+
+	srcOffset = 0
+	for _, offset := range keys {
+		// this gives the length of the trace region in pages
+		regLength := s.trace.regions[offset]
+
+		// log.Infof("WS offset = 0x%x, length = %v pages", srcOffset, regLength)
+
+		for i:=0; i < regLength; i++ {
+			// byte index into working set file
+			base := uint64(uintptr(unsafe.Pointer(&s.workingSet[srcOffset])))
+			if (s.pageIsZero(base)) {
+				s.zeroNumWS++;
+			}
+			// this assumes the WS file is a list of sorted regions
+			// which is also done in installWorkingSetPages
+			srcOffset += 4096;
+		}
+	}
 }
 
 func installRegion(fd int, src, dst, mode, len uint64) error {

@@ -30,6 +30,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"strings"
+	"math"
 
 	"github.com/ease-lab/vhive/metrics"
 	"gonum.org/v1/gonum/stat"
@@ -53,6 +55,7 @@ type MemoryManager struct {
 	sync.Mutex
 	MemoryManagerCfg
 	instances map[string]*SnapshotState // Indexed by vmID
+	Prefault  bool
 }
 
 // NewMemoryManager Initializes a new memory manager
@@ -135,6 +138,8 @@ func (m *MemoryManager) Activate(vmID string) error {
 		return errors.New("VM not registered with the memory manager")
 	}
 
+	state.prefault = m.Prefault
+	
 	m.Unlock()
 
 	if state.isActive {
@@ -195,6 +200,35 @@ func (m *MemoryManager) FetchState(vmID string) error {
 	}
 
 	return err
+}
+
+func (m *MemoryManager) ResetTrace(vmID string) error {
+	logger := log.WithFields(log.Fields{"vmID": vmID})
+
+	logger.Info("Resetting snapshot state")
+
+	var (
+		state *SnapshotState
+		ok    bool
+	)
+
+	m.Lock()
+
+	state, ok = m.instances[vmID]
+	if !ok {
+		logger.Error("VM not registered with the memory manager")
+		return errors.New("VM not registered with the memory manager")
+	}
+
+	m.Unlock()
+
+	if !state.isEverActivated {
+		return nil
+	}
+
+	state.ResetTrace()
+	
+	return nil
 }
 
 // Deactivate Removes the epoller which serves page faults for the VM
@@ -380,18 +414,64 @@ func getRecRepHeaderStats(state *SnapshotState, functionName string) ([]string, 
 		"FuncName",
 		"RecPages",
 		"RecRegions",
-		"Unique",
-		"StdDev",
+		"inWS",
+		"outsideWS",
+		"kernelInWS",
+		"kernelOutWS",
+		"zeroInWS",
+		"zeroOutWS",
+		"ratioTouched",
+		// "StdDev",
 	}
 
-	uniqueMean, uniqueStd := stat.MeanStdDev(state.uniquePFServed, nil)
+	// uniqueMean, uniqueStd := stat.MeanStdDev(state.uniquePFServed, nil)
+	// inWSMean, _ := stat.MeanStdDev(state.inWSPFServed, nil)
+	// kernelInWSMean, _ := stat.MeanStdDev(state.kernelPFServedInWS, nil)
+	// kernelOutWSMean, _ := stat.MeanStdDev(state.kernelPFServedOutWS, nil)
+	// zeroInWSMean, _ := stat.MeanStdDev(state.zeroPFServedWS, nil)
+	// zeroOutWSMean, _ := stat.MeanStdDev(state.zeroPFServedUnique, nil)
+
+	uniqueLastIter := state.uniquePFServed[len(state.uniquePFServed) - 1]
+
+	inWSLastIter := math.NaN()
+	if (len(state.inWSPFServed) > 0) {
+		inWSLastIter = state.inWSPFServed[len(state.inWSPFServed) - 1]
+	}
+
+	kernelInWSLastIter := math.NaN()
+	if (len(state.kernelPFServedInWS) > 0) {
+		kernelInWSLastIter = state.kernelPFServedInWS[len(state.kernelPFServedInWS) - 1]
+	}
+
+	kernelOutWSLastIter := state.kernelPFServedOutWS[len(state.kernelPFServedOutWS) - 1]
+	zeroInWSLastIter := state.zeroPFServedWS[len(state.zeroPFServedWS) - 1]
+	zeroOutWSLastIter := state.zeroPFServedUnique[len(state.zeroPFServedUnique) - 1]
+
+	for i, v := range state.uniquePFList {
+		hex := fmt.Sprintf("%x", v)
+		hex = strings.ReplaceAll(hex, " ", ", 0x")
+		hex = strings.ReplaceAll(hex, "[", "[0x")
+		
+		log.Infof("iter %d: %v", i, hex)
+	}
+
+	log.Infof("total page faults outside the working set: %v", state.uniquePFServed)
+	log.Infof("kernel page faults inside the working set: %v", state.kernelPFServedInWS)
+	log.Infof("kernel page faults outside the working set: %v", state.kernelPFServedOutWS)
+	log.Infof("total page faults inside the working set: %v", state.inWSPFServed)
 
 	stats := []string{
 		functionName,
 		strconv.Itoa(len(state.trace.trace)),   // number of records (i.e., offsets)
 		strconv.Itoa(len(state.trace.regions)), // number of contiguous regions in the trace
-		strconv.Itoa(int(uniqueMean)),          // number of pages not found in the trace
-		fmt.Sprintf("%.1f", uniqueStd),
+		strconv.Itoa(int(inWSLastIter)),            // number of page faults resolving to the WS
+		strconv.Itoa(int(uniqueLastIter)),          // number of pages not found in the trace
+		strconv.Itoa(int(kernelInWSLastIter)),          // number of page faults from kernel pages inside the WS
+		strconv.Itoa(int(kernelOutWSLastIter)),          // number of page faults from kernel pages outside the WS
+		strconv.Itoa(int(zeroInWSLastIter)),
+		strconv.Itoa(int(zeroOutWSLastIter)),
+		fmt.Sprintf("%.2f", inWSLastIter/float64(len(state.trace.trace))), // ratio of faults inside the working set : WSS
+		// fmt.Sprintf("%.1f", uniqueStd),
 	}
 
 	return header, stats

@@ -19,6 +19,7 @@ FCCTR_BUILD=$FCCTRD_DIR/firecracker-control/cmd/containerd/firecracker-ctr
 # build firecracker
 pushd $FC_DIR
 
+# if the build hangs, run 'sudo systemctl restart docker'
 cargo update --dry-run
 tools/devtool build --release
 

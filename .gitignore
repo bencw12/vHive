@@ -20,3 +20,6 @@
 
 # Binaries
 vhive
+
+*.tar
+*.class

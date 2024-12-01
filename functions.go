@@ -115,8 +115,9 @@ func (p *FuncPool) getFunction(fID, imageName string) *Function {
 }
 
 // Serve Service RPC request by triggering the corresponding function.
-func (p *FuncPool) Serve(ctx context.Context, fID, imageName, payload string) (*hpb.FwdHelloResp, *metrics.Metric, error) {
+func (p *FuncPool) Serve(ctx context.Context, fID, imageName, payload string, prefault bool) (*hpb.FwdHelloResp, *metrics.Metric, error) {
 	f := p.getFunction(fID, imageName)
+	f.prefault = prefault
 
 	return f.Serve(ctx, fID, imageName, payload)
 }
@@ -151,6 +152,13 @@ func (p *FuncPool) DumpUPFPageStats(fID, imageName, functionName, metricsOutFile
 	return f.DumpUPFPageStats(functionName, metricsOutFilePath)
 }
 
+func (p *FuncPool) ResetTrace(fID, imageName string) error {
+	f := p.getFunction(fID, imageName)
+	f.ResetTrace()
+
+	return nil
+}
+
 // DumpUPFLatencyStats Dumps the memory manager's stats for a function about number of unique/reused pages
 func (p *FuncPool) DumpUPFLatencyStats(fID, imageName, functionName, latencyOutFilePath string) error {
 	f := p.getFunction(fID, imageName)
@@ -178,6 +186,7 @@ type Function struct {
 	funcClient             *hpb.GreeterClient
 	conn                   *grpc.ClientConn
 	guestIP                string
+	prefault               bool // BCWH true if we should prefault the working set on restore
 }
 
 // NewFunction Initializes a function
@@ -248,6 +257,7 @@ func (f *Function) Serve(ctx context.Context, fID, imageName, reqPayload string)
 
 	f.stats.IncServed(f.fID)
 
+	// this should only be executed when the snapshot is created
 	f.OnceAddInstance.Do(
 		func() {
 			var metr *metrics.Metric
@@ -268,7 +278,7 @@ func (f *Function) Serve(ctx context.Context, fID, imageName, reqPayload string)
 
 	// FIXME: keep a strict deadline for forwarding RPCs to a warm function
 	// Eventually, it needs to be RPC-dependent and probably client-defined
-	ctxFwd, cancel := context.WithDeadline(context.Background(), time.Now().Add(20*time.Second))
+	ctxFwd, cancel := context.WithDeadline(context.Background(), time.Now().Add(300*time.Second))
 	defer cancel()
 
 	tStart = time.Now()
@@ -360,8 +370,10 @@ func (f *Function) AddInstance() *metrics.Metric {
 	defer cancel()
 
 	if f.isSnapshotReady {
+		log.Debug("Loading instance (from snapshot)")
 		metr = f.LoadInstance()
 	} else {
+		log.Debug("Starting fresh VM")
 		resp, _, err := orch.StartVM(ctx, f.getVMID(), f.imageName)
 		f.guestIP = resp.GuestIP
 		if err != nil {
@@ -372,8 +384,11 @@ func (f *Function) AddInstance() *metrics.Metric {
 		f.lastInstanceID++
 	}
 
+	log.Debug("Connecting to client")
+
 	tStart := time.Now()
 	funcClient, err := f.getFuncClient()
+
 	if metr != nil {
 		metr.MetricMap[metrics.ConnectFuncClient] = metrics.ToUS(time.Since(tStart))
 	}
@@ -381,6 +396,8 @@ func (f *Function) AddInstance() *metrics.Metric {
 		logger.Panic("Failed to acquire func client")
 	}
 	f.funcClient = &funcClient
+
+	log.Debug("Connected")
 
 	f.stats.IncStarted(f.fID)
 
@@ -443,6 +460,10 @@ func (f *Function) DumpUPFLatencyStats(functionName, latencyOutFilePath string) 
 	return orch.DumpUPFLatencyStats(f.vmID, functionName, latencyOutFilePath)
 }
 
+func (f *Function) ResetTrace() {
+	orch.ResetTrace(context.Background(), f.vmID)
+}
+
 // CreateInstanceSnapshot Creates a snapshot of the instance
 func (f *Function) CreateInstanceSnapshot() {
 	logger := log.WithFields(log.Fields{"fID": f.fID})
@@ -494,6 +515,8 @@ func (f *Function) LoadInstance() *metrics.Metric {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
 	defer cancel()
 
+	log.Debug("Loading snapshot")
+	orch.Prefault = f.prefault
 	loadMetr, err := orch.LoadSnapshot(ctx, f.vmID)
 	if err != nil {
 		log.Panic(err)

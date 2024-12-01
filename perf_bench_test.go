@@ -61,7 +61,7 @@ func TestBenchRequestPerSecond(t *testing.T) {
 
 	// Pull images
 	for funcName, imageName := range images {
-		resp, _, err := funcPool.Serve(context.Background(), "plr_fnc", imageName, "record")
+		resp, _, err := funcPool.Serve(context.Background(), "plr_fnc", imageName, "record", true)
 
 		require.NoError(t, err, "Function returned error")
 		require.Equal(t, resp.Payload, "Hello, record_response!")
@@ -120,7 +120,7 @@ func TestBenchRequestPerSecond(t *testing.T) {
 func serveVM(t *testing.T, start time.Time, vmIDString, imageName string, vmGroup *sync.WaitGroup, isSyncOffload bool) {
 	defer vmGroup.Done()
 
-	resp, _, err := funcPool.Serve(context.Background(), vmIDString, imageName, "replay")
+	resp, _, err := funcPool.Serve(context.Background(), vmIDString, imageName, "replay", true)
 	require.NoError(t, err, "Function returned error")
 	require.Equal(t, resp.Payload, "Hello, replay_response!")
 
@@ -137,14 +137,14 @@ func serveVM(t *testing.T, start time.Time, vmIDString, imageName string, vmGrou
 
 func getImages() map[string]string {
 	return map[string]string{
-		"helloworld": "ustiugov/helloworld:var_workload",
-		// "chameleon":    "ustiugov/chameleon:var_workload",
-		// "pyaes":        "ustiugov/pyaes:var_workload",
-		// "image_rotate": "ustiugov/image_rotate:var_workload",
-		// "json_serdes":  "ustiugov/json_serdes:var_workload",
-		// "lr_serving":   "ustiugov/lr_serving:var_workload",
-		// "cnn_serving":  "ustiugov/cnn_serving:var_workload",
-		// "rnn_serving":  "ustiugov/rnn_serving:var_workload",
-		// "lr_training":  "ustiugov/lr_training:var_workload",
+		"helloworld":   "ustiugov/helloworld:var_workload",
+		"chameleon":    "ustiugov/chameleon:var_workload",
+		"pyaes":        "ustiugov/pyaes:var_workload",
+		"image_rotate": "ustiugov/image_rotate:var_workload",
+		"json_serdes":  "ustiugov/json_serdes:var_workload",
+		"lr_serving":   "ustiugov/lr_serving:var_workload",
+		"cnn_serving":  "ustiugov/cnn_serving:var_workload",
+		"rnn_serving":  "ustiugov/rnn_serving:var_workload",
+		"lr_training":  "ustiugov/lr_training:var_workload",
 	}
 }
