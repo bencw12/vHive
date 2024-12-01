@@ -3,4 +3,9 @@
 	url = https://github.com/ease-lab/firecracker-containerd.git
 [submodule "firecracker"]
 	path = firecracker
-	url = https://github.com/ease-lab/firecracker.git
+	url = https://github.com/bencw12/firecracker
+	branch = tracefault
+[submodule "linux"]
+	path = linux
+	url = https://github.com/bencw12/linux
+	branch = tracefault-4.14.174
