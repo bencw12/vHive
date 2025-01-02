@@ -205,8 +205,6 @@ func (m *MemoryManager) FetchState(vmID string) error {
 func (m *MemoryManager) ResetTrace(vmID string) error {
 	logger := log.WithFields(log.Fields{"vmID": vmID})
 
-	logger.Info("Resetting snapshot state")
-
 	var (
 		state *SnapshotState
 		ok    bool
@@ -447,18 +445,32 @@ func getRecRepHeaderStats(state *SnapshotState, functionName string) ([]string, 
 	zeroInWSLastIter := state.zeroPFServedWS[len(state.zeroPFServedWS) - 1]
 	zeroOutWSLastIter := state.zeroPFServedUnique[len(state.zeroPFServedUnique) - 1]
 
+	curIter := 0
 	for i, v := range state.uniquePFList {
 		hex := fmt.Sprintf("%x", v)
 		hex = strings.ReplaceAll(hex, " ", ", 0x")
 		hex = strings.ReplaceAll(hex, "[", "[0x")
 		
-		log.Infof("iter %d: %v", i, hex)
+		log.Infof("unique page faults for iter %d: %v", i, hex)
+		curIter++
 	}
+
+	workingSetAddrs := make([]uint64, 0)
+	for _, r := range state.trace.trace {
+		workingSetAddrs = append(workingSetAddrs, r.offset)
+	}
+
+	hex := fmt.Sprintf("%x", workingSetAddrs)
+	hex = strings.ReplaceAll(hex, " ", ", 0x")
+	hex = strings.ReplaceAll(hex, "[", "[0x")
+
+	log.Infof("working set at iter %d: %v", curIter - 1, hex)
 
 	log.Infof("total page faults outside the working set: %v", state.uniquePFServed)
 	log.Infof("kernel page faults inside the working set: %v", state.kernelPFServedInWS)
 	log.Infof("kernel page faults outside the working set: %v", state.kernelPFServedOutWS)
 	log.Infof("total page faults inside the working set: %v", state.inWSPFServed)
+	log.Infof("time to fetch the WS: %v" , state.fetchStateTimes)
 
 	stats := []string{
 		functionName,

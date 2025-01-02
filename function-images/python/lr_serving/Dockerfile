@@ -10,7 +10,7 @@ RUN cp -r /root/.local/lib/* /lib/
 RUN apk add --no-cache \
     g++ gcc gfortran file binutils linux-headers \
     musl-dev python3-dev cython openblas-dev lapack-dev \
-    libstdc++ py3-scipy
+    libstdc++ openblas lapack py3-scipy
 
 COPY requirements.txt .
 RUN python -m pip install --upgrade pip

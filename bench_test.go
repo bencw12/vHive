@@ -50,6 +50,7 @@ var (
 	funcName         = flag.String("funcName", "helloworld", "Name of the function to benchmark")
 	funcPath         = flag.String("funcPath", "", "Path of locally build container image for function to use in benchmark")
 	resetTrace       = flag.Bool("resetTrace", false, "whether to reset the trace for stability tests")
+	doMemTrace       = flag.Bool("memTrace", false, "whether to report provenance of each guest memory page on restore")
 )
 
 func TestBenchParallelServe(t *testing.T) {
@@ -210,7 +211,6 @@ func TestWSStability(t *testing.T) {
 		memManagerMetrics []*metrics.Metric
 	)
 
-	require.True(t, fileExists(*funcPath), "container path does not exist %s", *funcPath)
 	log.Infof("testing funcPath %s", *funcPath)
 
 	funcPool = NewFuncPool(!isSaveMemoryConst, servedTh, pinnedFuncNum, isTestModeConst)
@@ -226,27 +226,13 @@ func TestWSStability(t *testing.T) {
 
 	log.Info("Creating snapshots...")
 
-	// hacky but remove last memory trace
-	err = os.Remove("/tmp/fc-mem.log")
-	if err != nil {
-		fmt.Println("Error removing file: ", err)
-	}
-
 	createSnapshots(t, 1, vmID, *funcPath, isSyncOffload)
-
-	tracePath := fmt.Sprintf("%s/fc-trace-start.log", *benchDir)
-	cmd := exec.Command("cp", "/tmp/fc-trace.log", tracePath)
-	_, err = cmd.Output()
-	if err != nil {
-		log.Info("Failed to copy trace")
-	}
 
 	// Measure
 	serveMetrics := make([]*metrics.Metric, *iterNum)
 
 	// full experiment with prefetching
 	for k := 0; k < *iterNum; k++ {
-		// do the trace at every iteration; we can plot stats after
 		log.Info("Doing memory trace...")
 		createRecords(t, 1, vmID, *funcPath, isSyncOffload)
 
@@ -258,6 +244,23 @@ func TestWSStability(t *testing.T) {
 		require.NoError(t, err, "Function returned error")
 		require.Equal(t, resp.Payload, "Hello, replay_response!")
 
+		// copy restore log to results dir
+		restoreLog := fmt.Sprintf("restore_%v.log", k)
+
+		if *resetTrace {
+			restoreLog = fmt.Sprintf("restore_reset_%v.log", k)
+		}
+
+		cmd := exec.Command("cp", "/tmp/log_0_0_after.logs", getOutFile(restoreLog))
+		if err = cmd.Run(); err != nil {
+			log.Fatalf("Failed to copy restore log: %v", err)
+		}
+
+		cmd = exec.Command("chmod", "a+r", getOutFile(restoreLog))
+		if err = cmd.Run(); err != nil {
+			log.Fatalf("Failed to set permissions on restore log: %v", err)
+		}
+
 		serveMetrics[k] = met
 
 		time.Sleep(1 * time.Second) // this helps kworker hanging
@@ -267,13 +270,7 @@ func TestWSStability(t *testing.T) {
 
 		time.Sleep(3 * time.Second) // this helps kworker hanging
 
-		pageStatsPath := "pageStats.csv"
-
-		if *resetTrace {
-			pageStatsPath = "pageStatsReset.csv"
-		}
-
-		err = funcPool.DumpUPFPageStats(vmIDString, *funcPath, *funcName, getOutFile(pageStatsPath))
+		err = funcPool.DumpUPFPageStats(vmIDString, *funcPath, *funcName, getOutFile("pageStats.csv"))
 		require.NoError(t, err, "Failed to dump page stats for"+*funcName)
 		if *resetTrace {
 			funcPool.ResetTrace(vmIDString, *funcPath)
@@ -282,24 +279,44 @@ func TestWSStability(t *testing.T) {
 
 	// FUSE
 	if orch.GetUPFEnabled() {
-		// Page stats
 		err = funcPool.DumpUPFPageStats(vmIDString, *funcPath, *funcName, getOutFile("pageStats.csv"))
 		require.NoError(t, err, "Failed to dump page stats for"+*funcName)
-
 		memManagerMetrics, err = orch.GetUPFLatencyStats(vmIDString + "_0")
-		require.NoError(t, err, "Failed to dump get stats for "+*funcName)
+		require.NoError(t, err, "Failed to dump stats for "+*funcName)
 	}
 
 	servePath := "serve.csv"
 
-	if *resetTrace {
-		servePath = "serveReset.csv"
-	}
-
 	fusePrintMetrics(t, serveMetrics, memManagerMetrics, isUPFEnabledTest, true, *funcName, servePath)
 
-	// TODO do we need this?
-	// // run again without prefaulting and track working set accuracy
+	// do the memory trace
+	// TODO print working set AND all faults outside the working set, should be easy
+	if *doMemTrace && *resetTrace {
+		// hack
+		err = os.Remove("/tmp/fc-mem.log")
+		if err != nil {
+			fmt.Println("Error removing guest memory trace file: ", err)
+		}
+		require.NoError(t, err, "Failed to remove fc-mem.log")
+
+		if !*isWithCache {
+			dropPageCache()
+		}
+
+		resp, _, err := funcPool.Serve(context.Background(), vmIDString, *funcPath, "replay", true)
+		require.NoError(t, err, "Function returned error")
+		require.Equal(t, resp.Payload, "Hello, replay_response!")
+
+		time.Sleep(1 * time.Second) // this helps kworker hanging
+
+		message, err := funcPool.RemoveInstance(vmIDString, *funcPath, isSyncOffload)
+		require.NoError(t, err, "Function returned error, "+message)
+
+		time.Sleep(3 * time.Second) // this helps kworker hanging
+	}
+
+	// run again without prefaulting and track working set accuracy
+	// this will use the most recent trace
 	// for k := 0; k < *iterNum; k++ {
 	// 	if !*isWithCache {
 	// 		dropPageCache()
@@ -317,6 +334,22 @@ func TestWSStability(t *testing.T) {
 	// 	time.Sleep(3 * time.Second) // this helps kworker hanging
 	// }
 
+	// servePath = "wsAccuracy.csv"
+
+	// if *resetTrace {
+	// 	servePath = "wsAccuracyReset.csv"
+	// }
+	// // FUSE
+	// if orch.GetUPFEnabled() {
+	// 	// Page stats
+	// 	err = funcPool.DumpUPFPageStats(
+	// 		vmIDString,
+	// 		*funcPath,
+	// 		*funcName,
+	// 		getOutFile(servePath))
+
+	// 	require.NoError(t, err, "Failed to dump page stats for"+*funcName)
+	// }
 }
 
 func TestBenchLocalServe(t *testing.T) {
@@ -328,7 +361,7 @@ func TestBenchLocalServe(t *testing.T) {
 		memManagerMetrics []*metrics.Metric
 	)
 
-	require.True(t, fileExists(*funcPath), "container path does not exist %s", *funcPath)
+	// require.True(t, fileExists(*funcPath), "container path does not exist %s", *funcPath)
 	log.Infof("testing funcPath %s", *funcPath)
 
 	funcPool = NewFuncPool(!isSaveMemoryConst, servedTh, pinnedFuncNum, isTestModeConst)
@@ -344,20 +377,7 @@ func TestBenchLocalServe(t *testing.T) {
 
 	log.Info("Creating snapshots...")
 
-	// hacky but remove last memory trace
-	err = os.Remove("/tmp/fc-mem.log")
-	if err != nil {
-		fmt.Println("Error removing file: ", err)
-	}
-
 	createSnapshots(t, 1, vmID, *funcPath, isSyncOffload)
-
-	tracePath := fmt.Sprintf("%s/fc-trace-start.log", *benchDir)
-	cmd := exec.Command("cp", "/tmp/fc-trace.log", tracePath)
-	_, err = cmd.Output()
-	if err != nil {
-		log.Info("Failed to copy trace")
-	}
 
 	log.Info("Doing memory trace...")
 	createRecords(t, 1, vmID, *funcPath, isSyncOffload)
@@ -405,7 +425,13 @@ func TestBenchLocalServe(t *testing.T) {
 
 	// do memory trace (after everything else so we don't disturb results)
 	if orch.GetUPFEnabled() {
-		orch.EnableMemTrace()
+		// hacky but remove last memory trace
+		err = os.Remove("/tmp/fc-mem.log")
+		if err != nil {
+			fmt.Println("Error removing file: ", err)
+		}
+		require.NoError(t, err, "Failed to remove fc-mem.log")
+
 		if !*isWithCache {
 			dropPageCache()
 		}
@@ -420,7 +446,6 @@ func TestBenchLocalServe(t *testing.T) {
 		require.NoError(t, err, "Function returned error, "+message)
 
 		time.Sleep(3 * time.Second) // this helps kworker hanging
-		orch.DisableMemTrace()
 
 		memTracePath := fmt.Sprintf("%s/fc-mem.log", *benchDir)
 		cmd := exec.Command("cp", "/tmp/fc-mem.log", memTracePath)
@@ -471,19 +496,7 @@ func TestBenchServe(t *testing.T) {
 
 	log.Info("Creating snapshots...")
 
-	err = os.Remove("/tmp/fc-mem.log")
-	if err != nil {
-		fmt.Println("Error removing file: ", err)
-	}
-
 	createSnapshots(t, 1, vmID, imageName, isSyncOffload)
-
-	cmd := exec.Command("cp", "/tmp/fc-trace.log", "/tmp/fc-trace-start.log")
-
-	_, err = cmd.Output()
-	if err != nil {
-		log.Info("Failed to copy trace")
-	}
 
 	if *sleepBeforeTrace {
 		time.Sleep(time.Duration(*sleepTimeSec) * time.Second)
@@ -492,26 +505,6 @@ func TestBenchServe(t *testing.T) {
 	log.Info("Doing memory trace...")
 	createRecords(t, 1, vmID, imageName, isSyncOffload)
 	log.Info("Finished tracing")
-
-	if orch.GetUPFEnabled() {
-		// do memory trace
-		orch.EnableMemTrace()
-		if !*isWithCache {
-			dropPageCache()
-		}
-
-		resp, _, err = funcPool.Serve(context.Background(), vmIDString, imageName, "replay", true)
-		require.NoError(t, err, "Function returned error")
-		require.Equal(t, resp.Payload, "Hello, replay_response!")
-
-		time.Sleep(1 * time.Second) // this helps kworker hanging
-
-		message, err := funcPool.RemoveInstance(vmIDString, imageName, isSyncOffload)
-		require.NoError(t, err, "Function returned error, "+message)
-
-		time.Sleep(3 * time.Second) // this helps kworker hanging
-		orch.DisableMemTrace()
-	}
 
 	// Measure
 	serveMetrics := make([]*metrics.Metric, *iterNum)
@@ -573,9 +566,9 @@ func TestBenchServe(t *testing.T) {
 
 }
 
-///////////////////////////////////////////////////////////////////////////////
-////////////////////////// Auxialiary functions below /////////////////////////
-///////////////////////////////////////////////////////////////////////////////
+// /////////////////////////////////////////////////////////////////////////////
+// //////////////////////// Auxialiary functions below /////////////////////////
+// /////////////////////////////////////////////////////////////////////////////
 func fusePrintMetrics(t *testing.T, serveMetrics, upfMetrics []*metrics.Metric, isUPFEnabledTest *bool, printIndiv bool, funcName, outfile string) {
 	outFileName := getOutFile(outfile)
 

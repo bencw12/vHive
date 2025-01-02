@@ -13,8 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import io.minio.MinioClient;
-import io.minio.GetObjectArgs;
 import io.grpc.Grpc;
 import io.grpc.InsecureServerCredentials;
 import io.grpc.Server;
@@ -25,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 import io.grpc.examples.helloworld.*;
 import okio.Buffer;
+import java.util.Random;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
@@ -91,54 +90,45 @@ public class Main {
 	server.blockUntilShutdown();
     }
 
+    // return time
+    private static long mul(int[][] a, int[][] b, int[][] result, int n) {
+        long start = System.nanoTime();
+        for (int i = 0; i < n; i += 1) {
+            for (int j = 0; j < n; j += 1) {
+                int res_i_j = 0;
+                for (int k = 0; k < n; k += 1) {
+                    res_i_j += a[i][k] * b[k][j];
+                }
+                result[i][j] = res_i_j;
+            }
+        }
+        return System.nanoTime() - start;
+    }
+
+    public static void handle() {
+	int n = 300;
+	Random rand = new Random();
+
+	int[][] a = new int[n][n];
+	int[][] b = new int[n][n];
+	int[][] res = new int[n][n];
+	for (int i = 0; i < n; i += 1) {
+	    for (int j = 0; j < n; j += 1) {
+		a[i][j] = rand.nextInt(10);
+		b[i][j] = rand.nextInt(10);
+	    }
+	}
+
+	mul(a, b, res, n);
+    }
+
     static class GreeterImpl extends GreeterGrpc.GreeterImplBase {
 	private static String minioAddress = System.getenv("MINIO_ADDRESS");
 	
 	@Override
 	public void sayHello(HelloRequest req, StreamObserver<HelloReply> responseObserver) {
 
-	    // get image and resize
-	    MinioClient client = MinioClient.builder()
-		.endpoint("http://" + minioAddress)
-		.credentials("minioadmin", "minioadmin")
-		.build();
-
-	    BufferedImage image;
-	    BufferedImage rotated;
-	    Resizer resizer;
-	    double angle = Math.toRadians(90);
-	    
-	    if (req.getName().equals("record")) {
-		Main.snapshotPrepare();
-		
-		try (InputStream stream =
-		    client.getObject(GetObjectArgs.builder()
-				     .bucket("mybucket")
-				     .object("img2.jpeg")
-				     .build())) {
-		    image = ImageIO.read(stream);
-		    resizer = new Resizer(image);
-		    rotated = resizer.rotate(angle);
-
-		    // ImageIO.write(rotated, "jpg", new File("image_rotated.jpg"));
-		} catch (Exception e) {
-		    e.printStackTrace();
-		}
-	    } else {
-		try (InputStream stream =
-		    client.getObject(GetObjectArgs.builder()
-				     .bucket("mybucket")
-				     .object("img3.jpeg")
-				     .build())) {
-		    image = ImageIO.read(stream);
-		    resizer = new Resizer(image);
-		    rotated = resizer.rotate(angle);
-
-		    // ImageIO.write(rotated, "jpg", new File("image_rotated.jpg"));
-		} catch (Exception e) {
-		    System.out.println(e);
-		}
-	    }
+	    Main.handle();
 	    	    
 	    HelloReply reply = HelloReply.newBuilder().setMessage("Hello, " + req.getName() + "_response!").build();
 	    responseObserver.onNext(reply);

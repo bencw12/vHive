@@ -76,7 +76,6 @@ func NewFuncPool(saveMemoryMode bool, servedTh uint64, pinnedFuncNum int, testMo
 		go func() {
 			for {
 				<-heartbeat.C
-				log.Info("FuncPool heartbeat: ", p.stats.SprintStats())
 			}
 		}()
 	}
@@ -366,7 +365,7 @@ func (f *Function) AddInstance() *metrics.Metric {
 
 	var metr *metrics.Metric = nil
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*120)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*500)
 	defer cancel()
 
 	if f.isSnapshotReady {
@@ -470,7 +469,7 @@ func (f *Function) CreateInstanceSnapshot() {
 
 	logger.Debug("Creating instance snapshot")
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*120)
 	defer cancel()
 
 	err := orch.PauseVM(ctx, f.vmID)
@@ -495,7 +494,7 @@ func (f *Function) OffloadInstance() {
 
 	logger.Debug("Offloading instance")
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*120)
 	defer cancel()
 
 	err := orch.Offload(ctx, f.vmID)
@@ -512,7 +511,7 @@ func (f *Function) LoadInstance() *metrics.Metric {
 
 	logger.Debug("Loading instance")
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*120)
 	defer cancel()
 
 	log.Debug("Loading snapshot")
@@ -565,7 +564,7 @@ func (f *Function) getFuncClient() (hpb.GreeterClient, error) {
 	}
 
 	//  This timeout must be large enough for all functions to start up (e.g., ML training takes few seconds)
-	ctxx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctxx, cancel := context.WithTimeout(context.Background(), 60000*time.Second)
 	defer cancel()
 	conn, err := grpc.DialContext(ctxx, f.guestIP+":50051", gopts...)
 	f.conn = conn

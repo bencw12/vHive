@@ -317,8 +317,8 @@ func (o *Orchestrator) getImage(ctx context.Context, imageName string) (*contain
 	return &image, nil
 }
 
-func (o *Orchestrator) getVMConfig(vm *misc.VM) *proto.CreateVMRequest {	
-	kernelArgs := "ro noapic reboot=k panic=1 pci=off nomodules systemd.log_color=false systemd.unit=firecracker.target init=/sbin/overlay-init quiet 8250.nr_uarts=0 tsc=reliable ipv6.disable=1"
+func (o *Orchestrator) getVMConfig(vm *misc.VM) *proto.CreateVMRequest {
+	kernelArgs := "ro noapic reboot=k panic=1 pci=off nomodules init=/sbin/overlay-init tsc=reliable ipv6.disable=1 systemd.unit=firecracker.target quit 8250.nr_uarts=0 systemd.log_color=false"
 
 	return &proto.CreateVMRequest{
 		VMID:           vm.ID,
@@ -328,9 +328,6 @@ func (o *Orchestrator) getVMConfig(vm *misc.VM) *proto.CreateVMRequest {
 			VcpuCount:  1,
 			MemSizeMib: 256,
 		},
-		// RootDrive: &proto.FirecrackerRootDrive {
-		// 	HostPath: "/fast/bcwh/git/junction/lib/reap/bin/ubuntu-22.04.ext4",
-		// },
 		NetworkInterfaces: []*proto.FirecrackerNetworkInterface{{
 			StaticConfig: &proto.StaticNetworkConfiguration{
 				MacAddress:  vm.Ni.MacAddress,
@@ -450,12 +447,12 @@ func (o *Orchestrator) LoadSnapshot(ctx context.Context, vmID string) (*metrics.
 		EnableUserPF:     o.GetUPFEnabled(),
 	}
 
+	tStart = time.Now()
+
 	if o.GetUPFEnabled() {
 		// this reads the entire working set into a buffer (bypassing the page cache)
 		o.memoryManager.FetchState(vmID)
 	}
-
-	tStart = time.Now()
 
 	go func() {
 		defer close(loadDone)

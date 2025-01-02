@@ -36,9 +36,7 @@ df_input['x'] = [x]
 df_input['x'] = df_input['x'].apply(cleanup)
 X2 = tfidf_vect.transform(df_input['x'])
 
-#model = joblib.load('/var/local/dir/lr_model.pk')
 model = joblib.load('/lr_model.pk')
-print('Model is ready')
 
 responses = ["record_response", "replay_response"]
 

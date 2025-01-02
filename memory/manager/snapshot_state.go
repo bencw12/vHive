@@ -29,6 +29,7 @@ import "C"
 
 import (
 	"context"
+	"debug/elf"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -40,7 +41,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"debug/elf"
 
 	"github.com/ftrvxmtrx/fd"
 	log "github.com/sirupsen/logrus"
@@ -67,7 +67,7 @@ type SnapshotStateCfg struct {
 
 type MemRange struct {
 	start uint64
-	len uint64
+	len   uint64
 }
 
 // SnapshotState Stores the state of the snapshot
@@ -90,33 +90,34 @@ type SnapshotState struct {
 
 	isRecordReady bool
 
-	guestMem   []byte
-	workingSet []byte
+	guestMem    []byte
+	workingSet  []byte
 	kernelPhdrs []MemRange
 
 	// Stats
-	totalPFServed  []float64
-	uniquePFServed []float64
-	reusedPFServed []float64
-	zeroPFServedWS []float64
-	zeroPFServedUnique []float64
-	kernelPFServedInWS []float64
+	totalPFServed       []float64
+	uniquePFServed      []float64
+	reusedPFServed      []float64
+	zeroPFServedWS      []float64
+	zeroPFServedUnique  []float64
+	kernelPFServedInWS  []float64
 	kernelPFServedOutWS []float64
-	latencyMetrics []*metrics.Metric
-	inWSPFServed   []float64
+	latencyMetrics      []*metrics.Metric
+	inWSPFServed        []float64
+	fetchStateTimes     []float64
 
-	replayedNum   int // only valid for lazy serving
-	zeroNumWS       uint64 // number of zero pages from WS given to the guest in lazy mode
-	zeroNumUnique       uint64 // number of unique zero pages given to the guest in lazy mode
-	uniqueNum     int
-	kernelNumInWS     int // number of faults intercepted from kernel pages in the WS
+	replayedNum    int    // only valid for lazy serving
+	zeroNumWS      uint64 // number of zero pages from WS given to the guest in lazy mode
+	zeroNumUnique  uint64 // number of unique zero pages given to the guest in lazy mode
+	uniqueNum      int
+	kernelNumInWS  int // number of faults intercepted from kernel pages in the WS
 	kernelNumOutWS int // number of faults intercepted from kernel pages outside the WS
-	currentMetric *metrics.Metric
+	currentMetric  *metrics.Metric
 
-	inWS uint64
-	prefault bool
+	inWS         uint64
+	prefault     bool
 	uniquePFList [][]uint64
-	uniquePF []uint64
+	uniquePF     []uint64
 }
 
 // NewSnapshotState Initializes a snapshot state
@@ -138,8 +139,10 @@ func NewSnapshotState(cfg SnapshotStateCfg) *SnapshotState {
 		s.uniquePF = make([]uint64, 0)
 		s.zeroPFServedWS = make([]float64, 0)
 		s.zeroPFServedUnique = make([]float64, 0)
+		s.fetchStateTimes = make([]float64, 0)
 
 		// TODO don't hardcode elf path
+		// this is where the kernel is, though
 		file, err := os.Open("/fast/bcwh/git/junction/lib/reap/bin/vmlinux.bin")
 		if err != nil {
 			panic(fmt.Sprintf("failed to open kernel ELF: %v", err))
@@ -154,7 +157,7 @@ func NewSnapshotState(cfg SnapshotStateCfg) *SnapshotState {
 
 		for _, prog := range elf.Progs {
 			if prog.Type == 1 {
-				s.kernelPhdrs = append(s.kernelPhdrs, MemRange{start: prog.Paddr, len:prog.Memsz})
+				s.kernelPhdrs = append(s.kernelPhdrs, MemRange{start: prog.Paddr, len: prog.Memsz})
 			}
 		}
 	}
@@ -230,7 +233,6 @@ func (s *SnapshotState) processMetrics() {
 			s.kernelPFServedInWS = append(s.kernelPFServedInWS, float64(s.kernelNumInWS))
 		}
 
-
 		if s.IsLazyMode {
 			s.totalPFServed = append(s.totalPFServed, float64(s.replayedNum))
 			s.reusedPFServed = append(
@@ -264,7 +266,7 @@ func (s *SnapshotState) mapGuestMemory() error {
 }
 
 func (s *SnapshotState) unmapGuestMemory() error {
-	<- s.scanCh
+	<-s.scanCh
 	if err := unix.Munmap(s.guestMem); err != nil {
 		log.Errorf("Failed to munmap guest memory file: %v", err)
 		return err
@@ -311,6 +313,8 @@ func AlignedBlock(blockSize int) []byte {
 
 // fetchState Fetches the working set file (or the whole guest memory) and the VMM state file
 func (s *SnapshotState) fetchState() error {
+	tStart := time.Now()
+
 	if _, err := ioutil.ReadFile(s.VMMStatePath); err != nil {
 		log.Errorf("Failed to fetch VMM state: %v\n", err)
 		return err
@@ -337,6 +341,8 @@ func (s *SnapshotState) fetchState() error {
 		log.Errorf("Failed to close the working set file: %v\n", err)
 		return err
 	}
+
+	s.fetchStateTimes = append(s.fetchStateTimes, metrics.ToUS(time.Since(tStart)))
 
 	return nil
 }
@@ -465,7 +471,7 @@ func (s *SnapshotState) servePageFault(fd int, address uint64) error {
 
 			// bypass prefaulting to see how many faults resolve to the working set
 			if !s.prefault {
-				return;
+				return
 			}
 
 			if s.isRecordReady && !s.IsLazyMode {
@@ -495,7 +501,6 @@ func (s *SnapshotState) servePageFault(fd int, address uint64) error {
 	rec := Record{
 		offset: offset,
 	}
-
 
 	if !s.prefault {
 		if s.trace.containsRecord(rec) {
@@ -583,7 +588,7 @@ func (s *SnapshotState) pageIsZero(addr uint64) bool {
 	var sum uint64
 
 	sum = 0
-	for i:=addr; i<(addr + 4096/8); i++ {
+	for i := addr; i < (addr + 4096/8); i++ {
 		sum |= *ptr
 		ptr = (*uint64)(unsafe.Pointer(uintptr(unsafe.Pointer(ptr)) + 8))
 	}
@@ -596,7 +601,7 @@ func (s *SnapshotState) countUniqueZeroPages() {
 
 	for _, offset := range s.uniquePF {
 		base := uint64(uintptr(unsafe.Pointer(&s.guestMem[offset])))
-		if (s.pageIsZero(base)) {
+		if s.pageIsZero(base) {
 			s.zeroNumUnique++
 		}
 	}
@@ -623,15 +628,15 @@ func (s *SnapshotState) countWSZeroPages() {
 
 		// log.Infof("WS offset = 0x%x, length = %v pages", srcOffset, regLength)
 
-		for i:=0; i < regLength; i++ {
+		for i := 0; i < regLength; i++ {
 			// byte index into working set file
 			base := uint64(uintptr(unsafe.Pointer(&s.workingSet[srcOffset])))
-			if (s.pageIsZero(base)) {
-				s.zeroNumWS++;
+			if s.pageIsZero(base) {
+				s.zeroNumWS++
 			}
 			// this assumes the WS file is a list of sorted regions
 			// which is also done in installWorkingSetPages
-			srcOffset += 4096;
+			srcOffset += 4096
 		}
 	}
 }
