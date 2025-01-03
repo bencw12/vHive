@@ -313,6 +313,10 @@ func TestWSStability(t *testing.T) {
 		require.NoError(t, err, "Function returned error, "+message)
 
 		time.Sleep(3 * time.Second) // this helps kworker hanging
+		cmd := exec.Command("cp", "/tmp/fc-mem.log", getOutFile("mem-trace.log"))
+		if err = cmd.Run(); err != nil {
+			log.Fatalf("Failed to copy memory trace: %v", err)
+		}
 	}
 
 	// run again without prefaulting and track working set accuracy
