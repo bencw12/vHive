@@ -281,7 +281,14 @@ func (f *Function) Serve(ctx context.Context, fID, imageName, reqPayload string)
 	defer cancel()
 
 	tStart = time.Now()
+
 	resp, err := f.fwdRPC(ctxFwd, reqPayload)
+	if reqPayload == "record" {
+		for i := 0; i < 10; i++ {
+			resp, err = f.fwdRPC(ctxFwd, reqPayload)
+		}
+	}
+
 	serveMetric.MetricMap[metrics.FuncInvocation] = metrics.ToUS(time.Since(tStart))
 
 	if err != nil && ctxFwd.Err() == context.Canceled {
