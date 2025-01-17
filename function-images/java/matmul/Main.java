@@ -25,7 +25,6 @@ import io.grpc.examples.helloworld.*;
 import okio.Buffer;
 import java.util.Random;
 
-import java.awt.*;
 import java.awt.image.BufferedImage;
 
 import javax.imageio.ImageIO;
@@ -34,16 +33,45 @@ import java.io.File;
 /**
  * Server that manages startup/shutdown of a {@code Greeter} server.
  */
-public class Main {
+public class Main extends GreeterGrpc.GreeterImplBase {
     private static final Logger logger = Logger.getLogger(HelloWorldServer.class.getName());
 
     private Server server;
+    private int[][] a;
+    private int[][] b;
 
-    private void start() throws IOException {
-        /* The port on which the server should run */
+    public Main() {
+        int n = 100;
+        // setup
+        Random rand = new Random();
+
+        a = new int[n][n];
+        b = new int[n][n];
+        for (int i = 0; i < n; i += 1) {
+            for (int j = 0; j < n; j += 1) {
+                a[i][j] = rand.nextInt(10);
+                b[i][j] = rand.nextInt(10);
+            }
+        }
+    }
+
+
+    private static void exp_round(int[][] src, int[][] dst, int n) {
+        for (int i = 0; i < n; i += 1) {
+            for (int j = 0; j < n; j += 1) {
+                int res_i_j = 0;
+                for (int k = 0; k < n; k += 1) {
+                    res_i_j += src[i][k] * src[k][j];
+                }
+                dst[i][j] = res_i_j;
+            }
+        }
+    }
+
+    public void start() throws IOException {
         int port = 50051;
         server = Grpc.newServerBuilderForPort(port, InsecureServerCredentials.create())
-            .addService(new GreeterImpl())
+            .addService(this)
             .build()
             .start();
         Runtime.getRuntime().addShutdownHook(new Thread() {
@@ -73,97 +101,57 @@ public class Main {
         }
     }
 
-    
-    public static void snapshotPrepare() {
+    public void snapshotPrepare() {
         for (int i = 0; i < 3; i++) {
             System.gc();
             Runtime.getRuntime().gc();
         }
     }
+    class TestException extends Exception
+    {
+        // Parameterless Constructor
+        public TestException() {}
 
+        // Constructor that accepts a message
+        public TestException(String message)
+        {
+            super(message);
+        }
+    }
+
+    @Override
+    public void sayHello(HelloRequest req, StreamObserver<HelloReply> responseObserver) {
+
+        if (req.getName().equals("record")) {
+            this.snapshotPrepare();
+        }
+        long start = System.nanoTime();
+        exp_round(a, b, 100);
+        long end = System.nanoTime();
+        System.out.println("iteration time ns = " + (end - start));
+
+        String msg = "";
+        if (req.getName().equals("replay")) {
+            msg = String.valueOf(end - start);
+        }
+        HelloReply reply = HelloReply.newBuilder().setMessage("Hello, " + req.getName() + "_response!").build();
+        responseObserver.onNext(reply);
+        responseObserver.onCompleted();
+
+        // try {
+        //     if (end > 0) {
+        //         throw new TestException(String.valueOf(end - start));
+        //     }
+        // } catch (TestException e) {
+        //     System.out.println(e.getMessage());
+        // }
+    }
     /**
      * Main launches the server from the command line.
      */
     public static void main(String[] args) throws IOException, InterruptedException {
-        // long t_start = System.nanoTime();
-        // int n = 100;
-        // Random rand = new Random();
-
-        // int[][] a = new int[n][n];
-        // int[][] b = new int[n][n];
-        // for (int i = 0; i < n; i += 1) {
-        //     for (int j = 0; j < n; j += 1) {
-        //         a[i][j] = rand.nextInt(10);
-        //         b[i][j] = i == j ? 1 : 0;
-        //     }
-        // }
-
-        // long t_setup = System.nanoTime();
-        // System.out.println("setup done in " + ((t_setup - t_start) / 1000) + "us");
-
-        // t_start = System.nanoTime();
-        // Main.mul(a, b, n);
-        // long t_end = System.nanoTime();
-        // System.out.println("mul done in " + ((t_end - t_start) / 1000) + "us");
-
         final Main server = new Main();
         server.start();
         server.blockUntilShutdown();
-    }
-
-    // return time
-    private static long mul(int[][] src, int[][] dst, int n) {
-        long start = System.nanoTime();
-        for (int i = 0; i < n; i += 1) {
-            for (int j = 0; j < n; j += 1) {
-                int res_i_j = 0;
-                for (int k = 0; k < n; k += 1) {
-                    res_i_j += src[i][k] * src[k][j];
-                }
-                dst[i][j] = res_i_j;
-            }
-        }
-        return System.nanoTime() - start;
-    }
-
-    public static void handle(int[][] a, int[][] b, int size) {
-        // use a as dst
-        mul(a, b, size);
-    }
-
-    static class GreeterImpl extends GreeterGrpc.GreeterImplBase {
-        private static final int SIZE = 100;
-        private static String minioAddress = System.getenv("MINIO_ADDRESS");
-        public int[][] a;
-        public int[][] b;
-
-        public GreeterImpl() {
-            Random rand = new Random();
-
-            this.a = new int[SIZE][SIZE];
-            this.b = new int[SIZE][SIZE];
-            for (int i = 0; i < SIZE; i += 1) {
-                for (int j = 0; j < SIZE; j += 1) {
-                    this.a[i][j] = rand.nextInt(10);
-                    this.b[i][j] = i == j ? 1 : 0;
-                }
-            }
-        }
-	
-        @Override
-        public void sayHello(HelloRequest req, StreamObserver<HelloReply> responseObserver) {
-
-            if (req.getName().equals("record")) {
-                for (int i = 0; i < 50; i++) {
-                    Main.handle(a, b, SIZE);
-                }
-            } else {
-                Main.handle(a, b, SIZE);
-            }
-
-            HelloReply reply = HelloReply.newBuilder().setMessage("Hello, " + req.getName() + "_response!").build();
-            responseObserver.onNext(reply);
-            responseObserver.onCompleted();
-        }
     }
 }

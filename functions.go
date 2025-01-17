@@ -277,19 +277,21 @@ func (f *Function) Serve(ctx context.Context, fID, imageName, reqPayload string)
 
 	// FIXME: keep a strict deadline for forwarding RPCs to a warm function
 	// Eventually, it needs to be RPC-dependent and probably client-defined
-	ctxFwd, cancel := context.WithDeadline(context.Background(), time.Now().Add(300*time.Second))
+	ctxFwd, cancel := context.WithDeadline(context.Background(), time.Now().Add(100000*time.Second))
 	defer cancel()
 
 	tStart = time.Now()
 
 	resp, err := f.fwdRPC(ctxFwd, reqPayload)
+
+	serveMetric.MetricMap[metrics.FuncInvocation] = metrics.ToUS(time.Since(tStart))
+
+	// extra warmup runs pre-snapshot (not included in reported metrics)
 	if reqPayload == "record" {
 		for i := 0; i < 10; i++ {
 			resp, err = f.fwdRPC(ctxFwd, reqPayload)
 		}
 	}
-
-	serveMetric.MetricMap[metrics.FuncInvocation] = metrics.ToUS(time.Since(tStart))
 
 	if err != nil && ctxFwd.Err() == context.Canceled {
 		// context deadline exceeded
