@@ -114,11 +114,11 @@ func (p *FuncPool) getFunction(fID, imageName string) *Function {
 }
 
 // Serve Service RPC request by triggering the corresponding function.
-func (p *FuncPool) Serve(ctx context.Context, fID, imageName, payload string, prefault bool) (*hpb.FwdHelloResp, *metrics.Metric, error) {
+func (p *FuncPool) Serve(ctx context.Context, fID, imageName, payload string, prefault bool, warmUp bool) (*hpb.FwdHelloResp, *metrics.Metric, error) {
 	f := p.getFunction(fID, imageName)
 	f.prefault = prefault
 
-	return f.Serve(ctx, fID, imageName, payload)
+	return f.Serve(ctx, fID, imageName, payload, warmUp)
 }
 
 // AddInstance Adds instance of the function
@@ -236,7 +236,7 @@ func NewFunction(fID, imageName string, Stats *Stats, servedTh uint64, isToPin b
 //     b. The last goroutine is determined by the atomic counter: the goroutine with syncID==0 shuts down
 //     the instance.
 //     c. Instance shutdown is performed asynchronously because all instances have unique IDs.
-func (f *Function) Serve(ctx context.Context, fID, imageName, reqPayload string) (*hpb.FwdHelloResp, *metrics.Metric, error) {
+func (f *Function) Serve(ctx context.Context, fID, imageName, reqPayload string, warmUp bool) (*hpb.FwdHelloResp, *metrics.Metric, error) {
 	var (
 		serveMetric *metrics.Metric = metrics.NewMetric()
 		tStart      time.Time
@@ -256,7 +256,6 @@ func (f *Function) Serve(ctx context.Context, fID, imageName, reqPayload string)
 
 	f.stats.IncServed(f.fID)
 
-	// this should only be executed when the snapshot is created
 	f.OnceAddInstance.Do(
 		func() {
 			var metr *metrics.Metric
@@ -287,7 +286,7 @@ func (f *Function) Serve(ctx context.Context, fID, imageName, reqPayload string)
 	serveMetric.MetricMap[metrics.FuncInvocation] = metrics.ToUS(time.Since(tStart))
 
 	// extra warmup runs pre-snapshot (not included in reported metrics)
-	if reqPayload == "record" {
+	if warmUp {
 		for i := 0; i < 10; i++ {
 			resp, err = f.fwdRPC(ctxFwd, reqPayload)
 		}
@@ -323,11 +322,11 @@ func (f *Function) Serve(ctx context.Context, fID, imageName, reqPayload string)
 			})
 	}
 
-	for i := 0; i < 1; i++ {
-		tStart = time.Now()
-		resp, err = f.fwdRPC(ctxFwd, reqPayload)
-		serveMetric.MetricMap[metrics.Warm] = metrics.ToUS(time.Since(tStart))
-	}
+	// measure a single warm iteration
+	// TODO(BCWH) maybe remove?
+	tStart = time.Now()
+	resp, err = f.fwdRPC(ctxFwd, reqPayload)
+	serveMetric.MetricMap[metrics.Warm] = metrics.ToUS(time.Since(tStart))
 
 	f.RUnlock()
 

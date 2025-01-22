@@ -51,6 +51,7 @@ var (
 	funcPath         = flag.String("funcPath", "", "Path of locally build container image for function to use in benchmark")
 	resetTrace       = flag.Bool("resetTrace", false, "whether to reset the trace for stability tests")
 	doMemTrace       = flag.Bool("memTrace", false, "whether to report provenance of each guest memory page on restore")
+	funcArgs         = flag.String("funcArgs", "{}", "JSON string of arguments passed to the function being executed")
 )
 
 func TestBenchParallelServe(t *testing.T) {
@@ -74,9 +75,9 @@ func TestBenchParallelServe(t *testing.T) {
 	createResultsDir()
 
 	// Pull image
-	resp, _, err := funcPool.Serve(context.Background(), "plr_fnc", imageName, "record", true)
+	_, _, err := funcPool.Serve(context.Background(), "plr_fnc", imageName, *funcArgs, true, true)
 	require.NoError(t, err, "Function returned error")
-	require.Equal(t, resp.Payload, "Hello, record_response!")
+	// require.Equal(t, resp.Payload, "Hello, record_response!")
 
 	createSnapshots(t, concurrency, vmID, imageName, isSyncOffload)
 	log.Info("All snapshots created")
@@ -100,9 +101,9 @@ func TestBenchParallelServe(t *testing.T) {
 		go func(i int) {
 			defer vmGroup.Done()
 
-			resp, metr, err := funcPool.Serve(context.Background(), vmIDString, imageName, "replay", true)
+			_, metr, err := funcPool.Serve(context.Background(), vmIDString, imageName, *funcArgs, true, false)
 			require.NoError(t, err, "Function returned error")
-			require.Equal(t, resp.Payload, "Hello, replay_response!")
+			// require.Equal(t, resp.Payload, "Hello, replay_response!")
 
 			serveMetrics[i] = metr
 		}(i)
@@ -149,9 +150,9 @@ func TestBenchWarmServe(t *testing.T) {
 	vmIDString := strconv.Itoa(vmID)
 
 	// First time invoke (cold start)
-	resp, _, err := funcPool.Serve(context.Background(), vmIDString, imageName, "replay", true)
+	_, _, err := funcPool.Serve(context.Background(), vmIDString, imageName, *funcArgs, true, true)
 	require.NoError(t, err, "Function returned error")
-	require.Equal(t, resp.Payload, "Hello, replay_response!")
+	// require.Equal(t, resp.Payload, "Hello, replay_response!")
 
 	// memory footprint
 	memFootprint, err := getMemFootprint()
@@ -167,9 +168,9 @@ func TestBenchWarmServe(t *testing.T) {
 			dropPageCache()
 		}
 
-		resp, met, err := funcPool.Serve(context.Background(), vmIDString, imageName, "replay", true)
+		_, met, err := funcPool.Serve(context.Background(), vmIDString, imageName, *funcArgs, true, false)
 		require.NoError(t, err, "Function returned error")
-		require.Equal(t, resp.Payload, "Hello, replay_response!")
+		// require.Equal(t, resp.Payload, "Hello, replay_response!")
 
 		serveMetrics[k] = met
 	}
@@ -217,10 +218,10 @@ func TestWSStability(t *testing.T) {
 
 	createResultsDir()
 
-	resp, _, err := funcPool.Serve(context.Background(), "plr_fnc", *funcPath, "record", true)
+	_, _, err := funcPool.Serve(context.Background(), "plr_fnc", *funcPath, *funcArgs, true, true)
 
 	require.NoError(t, err, "Function returned error")
-	require.Equal(t, resp.Payload, "Hello, record_response!")
+	// require.Equal(t, resp.Payload, "Hello, record_response!")
 
 	vmIDString := strconv.Itoa(vmID)
 
@@ -240,9 +241,8 @@ func TestWSStability(t *testing.T) {
 			dropPageCache()
 		}
 
-		resp, met, err := funcPool.Serve(context.Background(), vmIDString, *funcPath, "replay", true)
+		_, met, err := funcPool.Serve(context.Background(), vmIDString, *funcPath, *funcArgs, true, false)
 		require.NoError(t, err, "Function returned error")
-		log.Infof("%v", resp.Payload)
 		// require.Equal(t, resp.Payload, "Hello, replay_response!")
 
 		// copy restore log to results dir
@@ -304,9 +304,9 @@ func TestWSStability(t *testing.T) {
 			dropPageCache()
 		}
 
-		resp, _, err := funcPool.Serve(context.Background(), vmIDString, *funcPath, "replay", true)
+		_, _, err := funcPool.Serve(context.Background(), vmIDString, *funcPath, *funcArgs, true, false)
 		require.NoError(t, err, "Function returned error")
-		require.Equal(t, resp.Payload, "Hello, replay_response!")
+		// require.Equal(t, resp.Payload, "Hello, replay_response!")
 
 		time.Sleep(1 * time.Second) // this helps kworker hanging
 
@@ -373,10 +373,10 @@ func TestBenchLocalServe(t *testing.T) {
 
 	createResultsDir()
 
-	resp, _, err := funcPool.Serve(context.Background(), "plr_fnc", *funcPath, "record", true)
+	_, _, err := funcPool.Serve(context.Background(), "plr_fnc", *funcPath, *funcArgs, true, true)
 
 	require.NoError(t, err, "Function returned error")
-	require.Equal(t, resp.Payload, "Hello, record_response!")
+	// require.Equal(t, resp.Payload, "Hello, record_response!")
 
 	vmIDString := strconv.Itoa(vmID)
 
@@ -396,7 +396,7 @@ func TestBenchLocalServe(t *testing.T) {
 			dropPageCache()
 		}
 
-		_, met, err := funcPool.Serve(context.Background(), vmIDString, *funcPath, "replay", true)
+		_, met, err := funcPool.Serve(context.Background(), vmIDString, *funcPath, *funcArgs, true, false)
 		require.NoError(t, err, "Function returned error")
 		// require.Equal(t, resp.Payload, "Hello, replay_response!")
 
@@ -416,9 +416,9 @@ func TestBenchLocalServe(t *testing.T) {
 			dropPageCache()
 		}
 
-		resp, _, err := funcPool.Serve(context.Background(), vmIDString, *funcPath, "replay", false)
+		_, _, err := funcPool.Serve(context.Background(), vmIDString, *funcPath, *funcArgs, false, false)
 		require.NoError(t, err, "Function returned error")
-		require.Equal(t, resp.Payload, "Hello, replay_response!")
+		// require.Equal(t, resp.Payload, "Hello, replay_response!")
 
 		time.Sleep(1 * time.Second) // this helps kworker hanging
 
@@ -441,9 +441,9 @@ func TestBenchLocalServe(t *testing.T) {
 			dropPageCache()
 		}
 
-		resp, _, err = funcPool.Serve(context.Background(), vmIDString, *funcPath, "replay", true)
+		_, _, err = funcPool.Serve(context.Background(), vmIDString, *funcPath, *funcArgs, true, false)
 		require.NoError(t, err, "Function returned error")
-		require.Equal(t, resp.Payload, "Hello, replay_response!")
+		// require.Equal(t, resp.Payload, "Hello, replay_response!")
 
 		time.Sleep(1 * time.Second) // this helps kworker hanging
 
@@ -493,9 +493,8 @@ func TestBenchServe(t *testing.T) {
 
 	createResultsDir()
 	// Pull image
-	resp, _, err := funcPool.Serve(context.Background(), "plr_fnc", imageName, "record", true)
+	_, _, err := funcPool.Serve(context.Background(), "plr_fnc", imageName, *funcArgs, true, true)
 	require.NoError(t, err, "Function returned error")
-	require.Equal(t, resp.Payload, "Hello, record_response!")
 
 	vmIDString := strconv.Itoa(vmID)
 
@@ -524,9 +523,9 @@ func TestBenchServe(t *testing.T) {
 			dropPageCache()
 		}
 
-		resp, met, err := funcPool.Serve(context.Background(), vmIDString, imageName, "replay", true)
+		_, met, err := funcPool.Serve(context.Background(), vmIDString, imageName, *funcArgs, true, false)
 		require.NoError(t, err, "Function returned error")
-		require.Equal(t, resp.Payload, "Hello, replay_response!")
+		// require.Equal(t, resp.Payload, "Hello, replay_response!")
 
 		serveMetrics[k] = met
 
@@ -544,9 +543,9 @@ func TestBenchServe(t *testing.T) {
 			dropPageCache()
 		}
 
-		resp, _, err := funcPool.Serve(context.Background(), vmIDString, imageName, "replay", false)
+		_, _, err := funcPool.Serve(context.Background(), vmIDString, imageName, *funcArgs, false, false)
 		require.NoError(t, err, "Function returned error")
-		require.Equal(t, resp.Payload, "Hello, replay_response!")
+		// require.Equal(t, resp.Payload, "Hello, replay_response!")
 
 		time.Sleep(1 * time.Second) // this helps kworker hanging
 
@@ -609,9 +608,9 @@ func createSnapshots(t *testing.T, concurrency, vmID int, imageName string, isSy
 			defer func() { <-sem }()
 
 			// Create VM (and snapshot)
-			resp, _, err := funcPool.Serve(context.Background(), vmIDString, imageName, "record", true)
+			_, _, err := funcPool.Serve(context.Background(), vmIDString, imageName, *funcArgs, true, true)
 			require.NoError(t, err, "Function returned error")
-			require.Equal(t, resp.Payload, "Hello, record_response!")
+			// require.Equal(t, resp.Payload, "Hello, record_response!")
 
 			message, err := funcPool.RemoveInstance(vmIDString, imageName, isSyncOffload)
 			require.NoError(t, err, "Function returned error, "+message)
@@ -636,9 +635,9 @@ func createRecords(t *testing.T, concurrency, vmID int, imageName string, isSync
 			defer func() { <-sem }()
 
 			// Record
-			resp, _, err := funcPool.Serve(context.Background(), vmIDString, imageName, "record", true)
+			_, _, err := funcPool.Serve(context.Background(), vmIDString, imageName, *funcArgs, true, false)
 			require.NoError(t, err, "Function returned error")
-			require.Equal(t, resp.Payload, "Hello, record_response!")
+			// require.Equal(t, resp.Payload, "Hello, record_response!")
 
 			message, err := funcPool.RemoveInstance(vmIDString, imageName, isSyncOffload)
 			require.NoError(t, err, "Function returned error, "+message)

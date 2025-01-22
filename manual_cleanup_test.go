@@ -42,7 +42,7 @@ func TestParallelServe(t *testing.T) {
 	funcPool = NewFuncPool(isSaveMemoryConst, servedTh, pinnedFuncNum, isTestModeConst)
 
 	// Pull image to work around parallel pulling limitation
-	resp, _, err := funcPool.Serve(context.Background(), "plr_fnc", imageName, "world", true)
+	resp, _, err := funcPool.Serve(context.Background(), "plr_fnc", imageName, "world", true, false)
 	require.NoError(t, err, "Function returned error")
 	require.Equal(t, resp.Payload, "Hello, world!")
 	// -----------------------------------------------------
@@ -56,11 +56,11 @@ func TestParallelServe(t *testing.T) {
 			defer vmGroup.Done()
 			fID := strconv.Itoa(100 + i)
 
-			resp, _, err := funcPool.Serve(context.Background(), fID, imageName, "world", true)
+			resp, _, err := funcPool.Serve(context.Background(), fID, imageName, "world", true, false)
 			require.NoError(t, err, "Function returned error on 1st run")
 			require.Equal(t, resp.Payload, "Hello, world!")
 
-			resp, _, err = funcPool.Serve(context.Background(), fID, imageName, "world", true)
+			resp, _, err = funcPool.Serve(context.Background(), fID, imageName, "world", true, false)
 			require.NoError(t, err, "Function returned error on 2nd run")
 			require.Equal(t, resp.Payload, "Hello, world!")
 		}(i)
@@ -77,16 +77,16 @@ func TestServeThree(t *testing.T) {
 	)
 	funcPool = NewFuncPool(isSaveMemoryConst, servedTh, pinnedFuncNum, isTestModeConst)
 
-	resp, _, err := funcPool.Serve(context.Background(), fID, imageName, "world", true)
+	resp, _, err := funcPool.Serve(context.Background(), fID, imageName, "world", true, false)
 	require.NoError(t, err, "Function returned error on 1st run")
 	require.Equal(t, resp.IsColdStart, true)
 	require.Equal(t, resp.Payload, "Hello, world!")
 
-	resp, _, err = funcPool.Serve(context.Background(), fID, imageName, "world", true)
+	resp, _, err = funcPool.Serve(context.Background(), fID, imageName, "world", true, false)
 	require.NoError(t, err, "Function returned error on 2nd run")
 	require.Equal(t, resp.Payload, "Hello, world!")
 
-	resp, _, err = funcPool.Serve(context.Background(), fID, imageName, "world", true)
+	resp, _, err = funcPool.Serve(context.Background(), fID, imageName, "world", true, false)
 	require.NoError(t, err, "Function returned error on 3rd run")
 	require.Equal(t, resp.Payload, "Hello, world!")
 

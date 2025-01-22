@@ -61,7 +61,7 @@ func TestBenchRequestPerSecond(t *testing.T) {
 
 	// Pull images
 	for funcName, imageName := range images {
-		resp, _, err := funcPool.Serve(context.Background(), "plr_fnc", imageName, "record", true)
+		resp, _, err := funcPool.Serve(context.Background(), "plr_fnc", imageName, "record", true, false)
 
 		require.NoError(t, err, "Function returned error")
 		require.Equal(t, resp.Payload, "Hello, record_response!")
@@ -120,7 +120,7 @@ func TestBenchRequestPerSecond(t *testing.T) {
 func serveVM(t *testing.T, start time.Time, vmIDString, imageName string, vmGroup *sync.WaitGroup, isSyncOffload bool) {
 	defer vmGroup.Done()
 
-	resp, _, err := funcPool.Serve(context.Background(), vmIDString, imageName, "replay", true)
+	resp, _, err := funcPool.Serve(context.Background(), vmIDString, imageName, "replay", true, false)
 	require.NoError(t, err, "Function returned error")
 	require.Equal(t, resp.Payload, "Hello, replay_response!")
 
