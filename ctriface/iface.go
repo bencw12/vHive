@@ -445,6 +445,7 @@ func (o *Orchestrator) LoadSnapshot(ctx context.Context, vmID string) (*metrics.
 		SnapshotFilePath: o.getSnapshotFile(vmID),
 		MemFilePath:      o.getMemoryFile(vmID),
 		EnableUserPF:     o.GetUPFEnabled(),
+		EnableMemTrace:   o.GetMemTraceEnabled(),
 	}
 
 	tStart = time.Now()

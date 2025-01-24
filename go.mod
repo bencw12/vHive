@@ -2,7 +2,7 @@ module github.com/ease-lab/vhive
 
 go 1.13
 
-replace github.com/firecracker-microvm/firecracker-containerd => github.com/ease-lab/firecracker-containerd v0.0.0-20200804113524-bc259c9e8152
+replace github.com/firecracker-microvm/firecracker-containerd => ./firecracker-containerd
 
 replace github.com/firecracker-microvm/firecracker-go-sdk => github.com/ease-lab/firecracker-go-sdk v0.20.1-0.20200625102438-8edf287b0123
 

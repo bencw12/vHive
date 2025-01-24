@@ -25,6 +25,8 @@ tools/devtool build --release
 
 popd
 
+mkdir -p $BIN_DIR
+
 cp $FC_BUILD $BIN_DIR
 cp $JAILER_BUILD $BIN_DIR
 

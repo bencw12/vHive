@@ -61,12 +61,13 @@ type Orchestrator struct {
 	client       *containerd.Client
 	fcClient     *fcclient.Client
 	// store *skv.KVStore
-	snapshotsEnabled bool
-	isUPFEnabled     bool
-	isLazyMode       bool
-	snapshotsDir     string
-	isMetricsMode    bool
-	minioAddress     string
+	snapshotsEnabled      bool
+	isUPFEnabled          bool
+	isMemTraceEnabled     bool // BCWH
+	isLazyMode            bool
+	snapshotsDir          string
+	isMetricsMode         bool
+	minioAddress          string
 
 	memoryManager *manager.MemoryManager
 	Prefault      bool // BCWH
@@ -148,6 +149,18 @@ func (o *Orchestrator) GetSnapshotsEnabled() bool {
 // GetUPFEnabled Returns the UPF mode of the orchestrator
 func (o *Orchestrator) GetUPFEnabled() bool {
 	return o.isUPFEnabled
+}
+
+func (o *Orchestrator) GetMemTraceEnabled() bool {
+	return o.isMemTraceEnabled
+}
+
+func (o *Orchestrator) EnableMemTrace() {
+	o.isMemTraceEnabled = true
+}
+
+func (o *Orchestrator) DisableMemTrace() {
+	o.isMemTraceEnabled = false
 }
 
 // DumpUPFPageStats Dumps the memory manager's stats about the number of
