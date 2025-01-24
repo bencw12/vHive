@@ -293,12 +293,7 @@ func TestWSStability(t *testing.T) {
 	// do the memory trace
 	// TODO print working set AND all faults outside the working set, should be easy
 	if *doMemTrace && *resetTrace {
-		// hack
-		err = os.Remove("/tmp/fc-mem.log")
-		if err != nil {
-			fmt.Println("Error removing guest memory trace file: ", err)
-		}
-		require.NoError(t, err, "Failed to remove fc-mem.log")
+		orch.EnableMemTrace()
 
 		if !*isWithCache {
 			dropPageCache()
@@ -314,6 +309,9 @@ func TestWSStability(t *testing.T) {
 		require.NoError(t, err, "Function returned error, "+message)
 
 		time.Sleep(3 * time.Second) // this helps kworker hanging
+
+		orch.DisableMemTrace()
+
 		cmd := exec.Command("cp", "/tmp/fc-mem.log", getOutFile("mem-trace.log"))
 		if err = cmd.Run(); err != nil {
 			log.Fatalf("Failed to copy memory trace: %v", err)
@@ -429,38 +427,34 @@ func TestBenchLocalServe(t *testing.T) {
 	}
 
 	// do memory trace (after everything else so we don't disturb results)
-	if orch.GetUPFEnabled() {
-		// hacky but remove last memory trace
-		err = os.Remove("/tmp/fc-mem.log")
-		if err != nil {
-			fmt.Println("Error removing file: ", err)
-		}
-		require.NoError(t, err, "Failed to remove fc-mem.log")
+	// if orch.GetUPFEnabled() {
+	// 	orch.EnableMemTrace()
+	// 	if !*isWithCache {
+	// 		dropPageCache()
+	// 	}
 
-		if !*isWithCache {
-			dropPageCache()
-		}
+	// 	_, _, err = funcPool.Serve(context.Background(), vmIDString, *funcPath, *funcArgs, true, false)
+	// 	require.NoError(t, err, "Function returned error")
+	// 	// require.Equal(t, resp.Payload, "Hello, replay_response!")
 
-		_, _, err = funcPool.Serve(context.Background(), vmIDString, *funcPath, *funcArgs, true, false)
-		require.NoError(t, err, "Function returned error")
-		// require.Equal(t, resp.Payload, "Hello, replay_response!")
+	// 	time.Sleep(1 * time.Second) // this helps kworker hanging
 
-		time.Sleep(1 * time.Second) // this helps kworker hanging
+	// 	message, err := funcPool.RemoveInstance(vmIDString, *funcPath, isSyncOffload)
+	// 	require.NoError(t, err, "Function returned error, "+message)
 
-		message, err := funcPool.RemoveInstance(vmIDString, *funcPath, isSyncOffload)
-		require.NoError(t, err, "Function returned error, "+message)
+	// 	orch.DisableMemTrace()
 
-		time.Sleep(3 * time.Second) // this helps kworker hanging
+	// 	time.Sleep(3 * time.Second) // this helps kworker hanging
 
-		memTracePath := fmt.Sprintf("%s/fc-mem.log", *benchDir)
-		cmd := exec.Command("cp", "/tmp/fc-mem.log", memTracePath)
-		_, err = cmd.Output()
-		if err != nil {
-			log.Info("Failed to copy trace")
-			panic("firecracker memory trace failed")
-		}
-	}
-	log.Info("Finished tracing")
+	// 	memTracePath := fmt.Sprintf("%s/fc-mem.log", *benchDir)
+	// 	cmd := exec.Command("cp", "/tmp/fc-mem.log", memTracePath)
+	// 	_, err = cmd.Output()
+	// 	if err != nil {
+	// 		log.Info("Failed to copy trace")
+	// 		panic("firecracker memory trace failed")
+	// 	}
+	// }
+	// log.Info("Finished tracing")
 
 	// FUSE
 	if orch.GetUPFEnabled() {
