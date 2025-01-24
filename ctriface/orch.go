@@ -117,6 +117,9 @@ func NewOrchestrator(snapshotter string, opts ...OrchestratorOption) *Orchestrat
 		log.Fatal("Failed to start firecracker client", err)
 	}
 	log.Info("Created firecracker client")
+
+	o.isMemTraceEnabled = false
+
 	return o
 }
 
